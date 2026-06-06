@@ -3,12 +3,14 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from db.audit_store import persist_audit_row
+from db.domain_auth import get_owned_domain, user_id_from
 from db.supabase_client import get_supabase
 from db.supabase_helpers import all_rows
+from middleware.auth import require_user
 from services.groq_client import safe_analyze_with_groq
 from services.serp_helpers import build_optimization_prompt, build_serp_summary, find_domain_rank
 from services.serp_tracker import track_serp
@@ -186,9 +188,10 @@ async def serp_history(project_id: str) -> dict[str, Any]:
 
 
 @router.get("/history/domain/{domain_id}")
-async def serp_history_by_domain(domain_id: str) -> dict[str, Any]:
+async def serp_history_by_domain(domain_id: str, user: dict = Depends(require_user)) -> dict[str, Any]:
     try:
         supabase = get_supabase()
+        get_owned_domain(supabase, domain_id, user_id_from(user))
         result = (
             supabase.table("serp_tracks")
             .select("*")

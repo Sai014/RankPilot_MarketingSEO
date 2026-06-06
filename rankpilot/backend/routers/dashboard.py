@@ -1,11 +1,13 @@
 import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from db.domain_auth import get_owned_domain, get_owned_page, user_id_from
 from db.errors import format_db_error
 from db.supabase_client import get_supabase
 from db.supabase_helpers import all_rows, first_row
+from middleware.auth import require_user
 from services.page_utils import keyword_from_path, resolve_page_countries
 
 logger = logging.getLogger(__name__)
@@ -111,21 +113,11 @@ def _top_ranked(rows: list[dict], limit: int = 6) -> list[dict[str, Any]]:
 
 
 @router.get("/{domain_id}")
-async def domain_dashboard(domain_id: str) -> dict[str, Any]:
+async def domain_dashboard(domain_id: str, user: dict = Depends(require_user)) -> dict[str, Any]:
     """Per-page dashboard: KPIs, charts, keyword rankings."""
     try:
         supabase = get_supabase()
-
-        domain = (
-            supabase.table("domains")
-            .select("*")
-            .eq("id", domain_id)
-            .maybe_single()
-            .execute()
-        )
-        domain_row = first_row(domain)
-        if not domain_row:
-            raise HTTPException(status_code=404, detail=_error_detail("Domain not found", "not_found"))
+        domain_row = get_owned_domain(supabase, domain_id, user_id_from(user))
 
         pages = all_rows(
             supabase.table("pages")

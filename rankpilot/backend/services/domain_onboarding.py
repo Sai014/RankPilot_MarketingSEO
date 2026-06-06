@@ -30,6 +30,7 @@ async def onboard_domain(
     max_pages: int = 200,
     display_name: str | None = None,
     target_countries: list[str] | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """
     Crawl sitemap for domain, persist domain row + page rows.
@@ -55,13 +56,10 @@ async def onboard_domain(
     if target_countries is not None:
         domain_fields["target_countries"] = target_countries
 
-    existing = (
-        supabase.table("domains")
-        .select("id")
-        .eq("domain", normalized)
-        .maybe_single()
-        .execute()
-    )
+    existing_query = supabase.table("domains").select("id").eq("domain", normalized)
+    if user_id:
+        existing_query = existing_query.eq("user_id", user_id)
+    existing = existing_query.maybe_single().execute()
     existing_row = first_row(existing)
     if existing_row:
         domain_id = existing_row["id"]
@@ -75,6 +73,8 @@ async def onboard_domain(
             "display_name": display_name or normalized,
             "target_countries": target_countries or [],
         }
+        if user_id:
+            insert_payload["user_id"] = user_id
         insert = supabase.table("domains").insert(insert_payload).execute()
         rows = all_rows(insert)
         if not rows:

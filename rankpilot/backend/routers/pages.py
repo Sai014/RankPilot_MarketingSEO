@@ -1,12 +1,14 @@
 import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from db.domain_auth import get_owned_domain, get_owned_page, user_id_from
 from db.errors import format_db_error
 from db.supabase_client import get_supabase
 from db.supabase_helpers import all_rows, first_row
+from middleware.auth import require_user
 from routers.dashboard import _serp_rank_for_url
 from services.page_utils import keyword_from_path, resolve_page_countries
 
@@ -48,21 +50,12 @@ async def list_pages(
     domain_id: str = Query(..., description="Domain UUID"),
     limit: int = Query(default=500, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
+    user: dict = Depends(require_user),
 ) -> dict[str, Any]:
     """List all sitemap pages for a domain with slug-derived keywords."""
     try:
         supabase = get_supabase()
-
-        domain = (
-            supabase.table("domains")
-            .select("id, domain, display_name, target_countries")
-            .eq("id", domain_id)
-            .maybe_single()
-            .execute()
-        )
-        domain_row = first_row(domain)
-        if not domain_row:
-            raise HTTPException(status_code=404, detail=_error_detail("Domain not found", "not_found"))
+        domain_row = get_owned_domain(supabase, domain_id, user_id_from(user))
 
         result = (
             supabase.table("pages")
@@ -110,32 +103,11 @@ def _latest_pagespeed_by_strategy(audits: list[dict]) -> dict[str, dict]:
 
 
 @router.get("/{page_id}/dashboard")
-async def page_dashboard(page_id: str) -> dict[str, Any]:
+async def page_dashboard(page_id: str, user: dict = Depends(require_user)) -> dict[str, Any]:
     """Per-page dashboard: PageSpeed, SERP, and search metrics."""
     try:
         supabase = get_supabase()
-
-        page_result = (
-            supabase.table("pages")
-            .select("*")
-            .eq("id", page_id)
-            .maybe_single()
-            .execute()
-        )
-        page_row = first_row(page_result)
-        if not page_row:
-            raise HTTPException(status_code=404, detail=_error_detail("Page not found", "not_found"))
-
-        domain = (
-            supabase.table("domains")
-            .select("*")
-            .eq("id", page_row["domain_id"])
-            .maybe_single()
-            .execute()
-        )
-        domain_row = first_row(domain)
-        if not domain_row:
-            raise HTTPException(status_code=404, detail=_error_detail("Domain not found", "not_found"))
+        page_row, domain_row = get_owned_page(supabase, page_id, user_id_from(user))
 
         ps_result = (
             supabase.table("pagespeed_audits")
@@ -217,35 +189,21 @@ async def page_dashboard(page_id: str) -> dict[str, Any]:
 
 
 @router.patch("/{page_id}")
-async def update_page(page_id: str, body: PageUpdate) -> dict[str, Any]:
+async def update_page(
+    page_id: str,
+    body: PageUpdate,
+    user: dict = Depends(require_user),
+) -> dict[str, Any]:
     """Update page settings (e.g. target countries override)."""
     try:
         supabase = get_supabase()
-
-        existing = (
-            supabase.table("pages")
-            .select("*")
-            .eq("id", page_id)
-            .maybe_single()
-            .execute()
-        )
-        page_row = first_row(existing)
-        if not page_row:
-            raise HTTPException(status_code=404, detail=_error_detail("Page not found", "not_found"))
+        page_row, domain_row = get_owned_page(supabase, page_id, user_id_from(user))
 
         countries = [c.strip() for c in body.target_countries if c and c.strip()]
         update_payload = {"target_countries": countries or None}
 
         supabase.table("pages").update(update_payload).eq("id", page_id).execute()
 
-        domain = (
-            supabase.table("domains")
-            .select("id, domain, display_name, target_countries")
-            .eq("id", page_row["domain_id"])
-            .maybe_single()
-            .execute()
-        )
-        domain_row = first_row(domain) or {}
         updated = {**page_row, **update_payload}
         enriched = _enrich_page(updated, domain_row)
 
@@ -260,21 +218,11 @@ async def update_page(page_id: str, body: PageUpdate) -> dict[str, Any]:
 
 
 @router.delete("/{page_id}")
-async def delete_page(page_id: str) -> dict[str, Any]:
+async def delete_page(page_id: str, user: dict = Depends(require_user)) -> dict[str, Any]:
     """Remove a page from tracking."""
     try:
         supabase = get_supabase()
-
-        existing = (
-            supabase.table("pages")
-            .select("id, domain_id, path, url")
-            .eq("id", page_id)
-            .maybe_single()
-            .execute()
-        )
-        page_row = first_row(existing)
-        if not page_row:
-            raise HTTPException(status_code=404, detail=_error_detail("Page not found", "not_found"))
+        page_row, _ = get_owned_page(supabase, page_id, user_id_from(user))
 
         domain_id = page_row["domain_id"]
         supabase.table("pages").delete().eq("id", page_id).execute()

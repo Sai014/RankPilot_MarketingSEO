@@ -1,12 +1,14 @@
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from db.domain_auth import get_owned_domain, user_id_from
 from db.errors import format_db_error
 from db.supabase_client import get_supabase
 from db.supabase_helpers import all_rows, first_row
+from middleware.auth import require_user
 from services.domain_onboarding import normalize_domain, onboard_domain, run_onboard_audits, site_url_from_domain
 
 router = APIRouter(prefix="/api/domains", tags=["domains"])
@@ -51,16 +53,25 @@ def _enrich_domain(row: dict) -> dict:
 
 
 @router.get("")
-async def list_domains() -> dict[str, Any]:
+async def list_domains(user: dict = Depends(require_user)) -> dict[str, Any]:
     try:
         supabase = get_supabase()
-        result = supabase.table("domains").select("*").order("created_at", desc=True).execute()
+        uid = user_id_from(user)
+        result = (
+            supabase.table("domains")
+            .select("*")
+            .eq("user_id", uid)
+            .order("created_at", desc=True)
+            .execute()
+        )
         domains = [_enrich_domain(d) for d in all_rows(result)]
         return {
             "success": True,
             "data": domains,
             "meta": {"total": len(domains)},
         }
+    except HTTPException:
+        raise
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=_error_detail(str(exc), "config_error")) from exc
     except Exception as exc:
@@ -70,15 +81,21 @@ async def list_domains() -> dict[str, Any]:
 
 
 @router.post("")
-async def create_domain(body: DomainCreate, background_tasks: BackgroundTasks) -> dict[str, Any]:
+async def create_domain(
+    body: DomainCreate,
+    background_tasks: BackgroundTasks,
+    user: dict = Depends(require_user),
+) -> dict[str, Any]:
     """Onboard a domain: crawl sitemap, store pages, then audit PageSpeed in background."""
     normalized = normalize_domain(body.domain)
+    uid = user_id_from(user)
     try:
         supabase = get_supabase()
         dup = (
             supabase.table("domains")
             .select("id, domain")
             .eq("domain", normalized)
+            .eq("user_id", uid)
             .maybe_single()
             .execute()
         )
@@ -93,6 +110,7 @@ async def create_domain(body: DomainCreate, background_tasks: BackgroundTasks) -
             max_pages=body.max_pages,
             display_name=body.display_name or normalized,
             target_countries=body.target_countries,
+            user_id=uid,
         )
         result["domain"] = _enrich_domain(result["domain"])
         background_tasks.add_task(run_onboard_audits, result["domain_id"], body.auto_serp)
@@ -118,19 +136,10 @@ async def create_domain(body: DomainCreate, background_tasks: BackgroundTasks) -
 
 
 @router.get("/{domain_id}")
-async def get_domain(domain_id: str) -> dict[str, Any]:
+async def get_domain(domain_id: str, user: dict = Depends(require_user)) -> dict[str, Any]:
     try:
         supabase = get_supabase()
-        result = (
-            supabase.table("domains")
-            .select("*")
-            .eq("id", domain_id)
-            .maybe_single()
-            .execute()
-        )
-        row = first_row(result)
-        if not row:
-            raise HTTPException(status_code=404, detail=_error_detail("Domain not found", "not_found"))
+        row = get_owned_domain(supabase, domain_id, user_id_from(user))
         return {"success": True, "data": _enrich_domain(row)}
     except HTTPException:
         raise
@@ -140,26 +149,30 @@ async def get_domain(domain_id: str) -> dict[str, Any]:
 
 
 @router.patch("/{domain_id}")
-async def update_domain(domain_id: str, body: DomainUpdate) -> dict[str, Any]:
+async def update_domain(
+    domain_id: str,
+    body: DomainUpdate,
+    user: dict = Depends(require_user),
+) -> dict[str, Any]:
     try:
         updates = body.model_dump(exclude_unset=True)
         if not updates:
             raise HTTPException(status_code=400, detail=_error_detail("No fields to update", "validation_error"))
 
         supabase = get_supabase()
-        result = supabase.table("domains").update(updates).eq("id", domain_id).execute()
+        uid = user_id_from(user)
+        get_owned_domain(supabase, domain_id, uid)
+
+        result = (
+            supabase.table("domains")
+            .update(updates)
+            .eq("id", domain_id)
+            .eq("user_id", uid)
+            .execute()
+        )
         row = first_row(result) or (all_rows(result)[0] if all_rows(result) else None)
         if not row:
-            check = (
-                supabase.table("domains")
-                .select("*")
-                .eq("id", domain_id)
-                .maybe_single()
-                .execute()
-            )
-            row = first_row(check)
-        if not row:
-            raise HTTPException(status_code=404, detail=_error_detail("Domain not found", "not_found"))
+            row = get_owned_domain(supabase, domain_id, uid)
         return {"success": True, "data": _enrich_domain(row)}
     except HTTPException:
         raise
@@ -169,11 +182,20 @@ async def update_domain(domain_id: str, body: DomainUpdate) -> dict[str, Any]:
 
 
 @router.delete("/{domain_id}")
-async def delete_domain(domain_id: str) -> dict[str, Any]:
+async def delete_domain(domain_id: str, user: dict = Depends(require_user)) -> dict[str, Any]:
     """Remove domain and all associated pages (cascade)."""
     try:
         supabase = get_supabase()
-        result = supabase.table("domains").delete().eq("id", domain_id).execute()
+        uid = user_id_from(user)
+        get_owned_domain(supabase, domain_id, uid)
+
+        result = (
+            supabase.table("domains")
+            .delete()
+            .eq("id", domain_id)
+            .eq("user_id", uid)
+            .execute()
+        )
         if not all_rows(result):
             raise HTTPException(status_code=404, detail=_error_detail("Domain not found", "not_found"))
         return {"success": True, "data": {"id": domain_id, "deleted": True}}
@@ -189,22 +211,15 @@ async def refresh_domain(
     domain_id: str,
     body: DomainRefresh,
     background_tasks: BackgroundTasks,
+    user: dict = Depends(require_user),
 ) -> dict[str, Any]:
     """Re-crawl sitemap, refresh pages, and run background audits."""
     try:
         supabase = get_supabase()
-        domain_row = (
-            supabase.table("domains")
-            .select("*")
-            .eq("id", domain_id)
-            .maybe_single()
-            .execute()
-        )
-        row = first_row(domain_row)
-        if not row:
-            raise HTTPException(status_code=404, detail=_error_detail("Domain not found", "not_found"))
+        uid = user_id_from(user)
+        row = get_owned_domain(supabase, domain_id, uid)
 
-        result = await onboard_domain(row["domain"], max_pages=body.max_pages)
+        result = await onboard_domain(row["domain"], max_pages=body.max_pages, user_id=uid)
         result["domain"] = _enrich_domain(result["domain"])
         background_tasks.add_task(run_onboard_audits, result["domain_id"], body.auto_serp)
         if body.auto_serp:
