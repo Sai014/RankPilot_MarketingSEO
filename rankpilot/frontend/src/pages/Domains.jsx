@@ -1,0 +1,265 @@
+import { useMemo, useState } from 'react';
+import { api, ApiError } from '../api/client';
+import DomainModal, { GlobeIcon } from '../components/DomainModal';
+import { useDomains } from '../components/DomainSelector';
+import { domainUrl, formatDate } from '../lib/domains';
+
+function SearchIcon() {
+  return (
+    <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+    </svg>
+  );
+}
+
+function ExternalLinkIcon() {
+  return (
+    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+    </svg>
+  );
+}
+
+function DomainCard({ item, onEdit, onDelete, deleting }) {
+  const url = item.url || domainUrl(item.domain);
+  const name = item.display_name || item.domain;
+
+  return (
+    <article className="bg-slate-900 border border-slate-800 rounded-xl p-5 hover:border-slate-700 transition-colors">
+      <div className="flex items-start gap-4">
+        <div className="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400 shrink-0">
+          <GlobeIcon className="w-5 h-5" />
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <h3 className="font-semibold text-white">{name}</h3>
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-sm text-brand-400 hover:text-brand-300 hover:underline mt-0.5"
+          >
+            {url}
+            <ExternalLinkIcon />
+          </a>
+
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-3 text-xs text-slate-500">
+            <span>{item.page_count ?? 0} pages tracked</span>
+            <span className="text-slate-700">·</span>
+            <span>{item.sitemap_count ?? (item.sitemap_source === 'sitemap' ? 1 : 0)} sitemap{(item.sitemap_count ?? 1) !== 1 ? 's' : ''}</span>
+            <span className="text-slate-700">·</span>
+            <span>Added {formatDate(item.created_at)}</span>
+            {item.status === 'syncing' && (
+              <>
+                <span className="text-slate-700">·</span>
+                <span className="text-amber-400 font-medium">Syncing…</span>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 shrink-0">
+          <button
+            type="button"
+            onClick={() => onEdit(item)}
+            className="text-sm font-medium text-slate-400 hover:text-white"
+          >
+            Edit
+          </button>
+          <button
+            type="button"
+            onClick={() => onDelete(item)}
+            disabled={deleting}
+            className="p-2 text-red-400 hover:text-red-300 hover:bg-red-950/40 rounded-lg disabled:opacity-50"
+            title="Delete domain"
+          >
+            <TrashIcon />
+          </button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function Domains() {
+  const { domains, loading, error, reload } = useDomains();
+  const [search, setSearch] = useState('');
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState('add');
+  const [editing, setEditing] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [actionError, setActionError] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return domains;
+    return domains.filter(
+      (d) =>
+        d.domain?.toLowerCase().includes(q) ||
+        d.display_name?.toLowerCase().includes(q) ||
+        d.url?.toLowerCase().includes(q),
+    );
+  }, [domains, search]);
+
+  function openAdd() {
+    setEditing(null);
+    setModalMode('add');
+    setModalOpen(true);
+    setActionError(null);
+  }
+
+  function openEdit(item) {
+    setEditing(item);
+    setModalMode('edit');
+    setModalOpen(true);
+    setActionError(null);
+  }
+
+  async function handleSubmit(form) {
+    setSubmitting(true);
+    setActionError(null);
+    try {
+      if (modalMode === 'edit' && editing) {
+        await api.updateDomain(editing.id, {
+          display_name: form.display_name,
+          target_countries: form.target_countries,
+        });
+      } else {
+        await api.createDomain({
+          domain: form.domain,
+          display_name: form.display_name,
+          target_countries: form.target_countries,
+        });
+      }
+      setModalOpen(false);
+      await reload();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : 'Something went wrong');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleDelete(item) {
+    if (!confirm(`Remove "${item.display_name || item.domain}" and all its pages?`)) return;
+    setDeletingId(item.id);
+    setActionError(null);
+    try {
+      await api.deleteDomain(item.id);
+      await reload();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : 'Failed to delete domain');
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  return (
+    <div className="min-h-full">
+      <div className="max-w-4xl mx-auto px-6 py-8">
+        <header className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-white">Domains</h1>
+            <p className="text-sm text-slate-400 mt-1">
+              Manage your tracked websites and their default settings
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={openAdd}
+            className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-brand-600 hover:bg-brand-500 text-white text-sm font-medium rounded-lg transition-colors shrink-0"
+          >
+            <span className="text-lg leading-none">+</span>
+            Add Domain
+          </button>
+        </header>
+
+        {(error || actionError) && !modalOpen && (
+          <div className="mb-6 p-4 bg-red-950/50 border border-red-800 rounded-lg text-red-300 text-sm">
+            {actionError || error}
+          </div>
+        )}
+
+        <div className="relative mb-6">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2">
+            <SearchIcon />
+          </span>
+          <input
+            type="search"
+            placeholder="Search domains"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-10 pr-4 py-2.5 bg-slate-900 border border-slate-800 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+          />
+        </div>
+
+        {loading ? (
+          <div className="space-y-3">
+            {[1, 2].map((i) => (
+              <div key={i} className="h-24 bg-slate-900 border border-slate-800 rounded-xl animate-pulse" />
+            ))}
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="py-16 text-center bg-slate-900 border border-slate-800 rounded-xl">
+            <div className="w-12 h-12 mx-auto rounded-full bg-slate-800 flex items-center justify-center text-slate-500 mb-4">
+              <GlobeIcon className="w-6 h-6" />
+            </div>
+            <p className="text-slate-300 font-medium">
+              {search ? 'No domains match your search' : 'No domains yet'}
+            </p>
+            <p className="text-sm text-slate-500 mt-1 mb-4">
+              {search ? 'Try a different search term' : 'Add your first website to start tracking'}
+            </p>
+            {!search && (
+              <button
+                type="button"
+                onClick={openAdd}
+                className="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white text-sm font-medium rounded-lg"
+              >
+                + Add Domain
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {filtered.map((d) => (
+              <DomainCard
+                key={d.id}
+                item={d}
+                onEdit={openEdit}
+                onDelete={handleDelete}
+                deleting={deletingId === d.id}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      <DomainModal
+        open={modalOpen}
+        onClose={() => !submitting && setModalOpen(false)}
+        onSubmit={handleSubmit}
+        submitting={submitting}
+        initial={editing}
+        mode={modalMode}
+      />
+
+      {actionError && modalOpen && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] px-4 py-2 bg-red-600 text-white text-sm rounded-lg shadow-lg">
+          {actionError}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default Domains;
