@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from db.errors import format_db_error
 from db.supabase_client import get_supabase
 from db.supabase_helpers import all_rows, first_row
+from routers.dashboard import _serp_rank_for_url
 from services.page_utils import keyword_from_path, resolve_page_countries
 
 logger = logging.getLogger(__name__)
@@ -90,6 +91,128 @@ async def list_pages(
     except Exception as exc:
         message, code = format_db_error(exc)
         logger.exception("Failed to list pages domain_id=%s", domain_id)
+        raise HTTPException(status_code=500, detail=_error_detail(message, code)) from exc
+
+
+def _latest_pagespeed_by_strategy(audits: list[dict]) -> dict[str, dict]:
+    """Latest audit metrics per strategy, including full Lighthouse scores."""
+    by_strategy: dict[str, dict] = {}
+    for audit in audits:
+        strategy = audit.get("strategy") or "mobile"
+        existing = by_strategy.get(strategy)
+        if not existing or audit.get("created_at", "") > existing.get("audited_at", ""):
+            metrics = (audit.get("result") or {}).get("metrics") or {}
+            by_strategy[strategy] = {
+                **metrics,
+                "audited_at": audit.get("created_at"),
+            }
+    return by_strategy
+
+
+@router.get("/{page_id}/dashboard")
+async def page_dashboard(page_id: str) -> dict[str, Any]:
+    """Per-page dashboard: PageSpeed, SERP, and search metrics."""
+    try:
+        supabase = get_supabase()
+
+        page_result = (
+            supabase.table("pages")
+            .select("*")
+            .eq("id", page_id)
+            .maybe_single()
+            .execute()
+        )
+        page_row = first_row(page_result)
+        if not page_row:
+            raise HTTPException(status_code=404, detail=_error_detail("Page not found", "not_found"))
+
+        domain = (
+            supabase.table("domains")
+            .select("*")
+            .eq("id", page_row["domain_id"])
+            .maybe_single()
+            .execute()
+        )
+        domain_row = first_row(domain)
+        if not domain_row:
+            raise HTTPException(status_code=404, detail=_error_detail("Domain not found", "not_found"))
+
+        ps_result = (
+            supabase.table("pagespeed_audits")
+            .select("*")
+            .eq("page_id", page_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        pagespeed_rows = all_rows(ps_result)
+        if not pagespeed_rows:
+            ps_result = (
+                supabase.table("pagespeed_audits")
+                .select("*")
+                .eq("url", page_row["url"])
+                .order("created_at", desc=True)
+                .execute()
+            )
+            pagespeed_rows = all_rows(ps_result)
+
+        ps_map = _latest_pagespeed_by_strategy(pagespeed_rows)
+        mobile = ps_map.get("mobile")
+        desktop = ps_map.get("desktop")
+
+        serp_result = (
+            supabase.table("serp_tracks")
+            .select("*")
+            .eq("domain_id", page_row["domain_id"])
+            .order("created_at", desc=True)
+            .execute()
+        )
+        serp = _serp_rank_for_url(all_rows(serp_result), page_row["url"])
+
+        metrics_result = (
+            supabase.table("page_metrics")
+            .select("*")
+            .eq("page_id", page_id)
+            .maybe_single()
+            .execute()
+        )
+        gsc_row = first_row(metrics_result)
+
+        enriched = _enrich_page(page_row, domain_row)
+        logger.info("Page dashboard page_id=%s path=%s", page_id, page_row.get("path"))
+
+        return {
+            "success": True,
+            "data": {
+                "page": enriched,
+                "pagespeed": {
+                    "mobile": mobile,
+                    "desktop": desktop,
+                    "performance_score": (mobile or desktop or {}).get("performance_score"),
+                    "seo_score": (mobile or desktop or {}).get("seo_score"),
+                    "lcp": (mobile or {}).get("lcp") or (desktop or {}).get("lcp"),
+                    "audited_at": (mobile or desktop or {}).get("audited_at"),
+                }
+                if mobile or desktop
+                else None,
+                "serp": serp,
+                "gsc": {
+                    "clicks": gsc_row.get("clicks") if gsc_row else None,
+                    "impressions": gsc_row.get("impressions") if gsc_row else None,
+                    "ctr": float(gsc_row["ctr"]) if gsc_row and gsc_row.get("ctr") is not None else None,
+                    "avg_position": float(gsc_row["avg_position"])
+                    if gsc_row and gsc_row.get("avg_position") is not None
+                    else None,
+                    "leads": gsc_row.get("leads") if gsc_row else None,
+                }
+                if gsc_row
+                else None,
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        message, code = format_db_error(exc)
+        logger.exception("Failed to load page dashboard page_id=%s", page_id)
         raise HTTPException(status_code=500, detail=_error_detail(message, code)) from exc
 
 

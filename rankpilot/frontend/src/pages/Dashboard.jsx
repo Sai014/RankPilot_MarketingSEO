@@ -33,6 +33,14 @@ function Dashboard() {
       .finally(() => setLoading(false));
   }, [domainId]);
 
+  useEffect(() => {
+    if (!domainId || selectedDomain?.status !== 'syncing') return undefined;
+    const interval = setInterval(() => {
+      api.getDashboard(domainId).then((res) => setData(res.data)).catch(() => {});
+    }, 20000);
+    return () => clearInterval(interval);
+  }, [domainId, selectedDomain?.status]);
+
   return (
     <div className="min-h-full">
       {/* Hero header with gradient mesh */}
@@ -83,6 +91,15 @@ function Dashboard() {
         ) : (
           <>
             <KpiStrip summary={data?.summary} />
+
+            {selectedDomain?.status === 'syncing' && (
+              <div className="rounded-xl border border-brand-500/20 bg-brand-950/20 px-5 py-4">
+                <p className="text-sm font-medium text-brand-200">PageSpeed audits in progress</p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Running mobile and desktop audits for each page. Scores will appear in the table as they complete.
+                </p>
+              </div>
+            )}
 
             {/* Charts bento grid */}
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">

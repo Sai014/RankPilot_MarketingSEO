@@ -3,6 +3,7 @@ import { formatCompact, rankBadgeClass, scoreColor, scorePct } from '../../lib/d
 import Pagination from '../Pagination';
 
 const DEFAULT_PAGE_SIZE = 25;
+
 function SortIcon({ active, dir }) {
   return (
     <svg className={`w-3 h-3 inline ml-1 ${active ? 'text-brand-400' : 'text-slate-600'}`} viewBox="0 0 12 12" fill="currentColor">

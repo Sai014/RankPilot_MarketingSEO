@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '../api/client';
+import ConfirmModal from '../components/ConfirmModal';
 import DomainModal, { GlobeIcon } from '../components/DomainModal';
 import { useDomains } from '../components/DomainSelector';
 import { domainUrl, formatDate } from '../lib/domains';
@@ -28,7 +29,25 @@ function TrashIcon() {
   );
 }
 
-function DomainCard({ item, onEdit, onDelete, deleting }) {
+function RefreshIcon({ spinning = false }) {
+  return (
+    <svg
+      className={`w-4 h-4 ${spinning ? 'animate-spin' : ''}`}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.5}
+        d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"
+      />
+    </svg>
+  );
+}
+
+function DomainCard({ item, onEdit, onRefresh, onDelete, refreshing, deleting }) {
   const url = item.url || domainUrl(item.domain);
   const name = item.display_name || item.domain;
 
@@ -66,11 +85,21 @@ function DomainCard({ item, onEdit, onDelete, deleting }) {
           </div>
         </div>
 
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => onRefresh(item)}
+            disabled={refreshing || deleting || item.status === 'syncing'}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Re-crawl sitemap and run PageSpeed audits"
+          >
+            <RefreshIcon spinning={refreshing || item.status === 'syncing'} />
+            Refresh
+          </button>
           <button
             type="button"
             onClick={() => onEdit(item)}
-            className="text-sm font-medium text-slate-400 hover:text-white"
+            className="text-sm font-medium text-slate-400 hover:text-white px-2 py-1.5"
           >
             Edit
           </button>
@@ -98,6 +127,17 @@ function Domains() {
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const [refreshingId, setRefreshingId] = useState(null);
+  const [refreshTarget, setRefreshTarget] = useState(null);
+  const [notice, setNotice] = useState(null);
+
+  const hasSyncing = domains.some((d) => d.status === 'syncing');
+
+  useEffect(() => {
+    if (!hasSyncing) return undefined;
+    const interval = setInterval(() => reload(), 15000);
+    return () => clearInterval(interval);
+  }, [hasSyncing, reload]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -149,6 +189,32 @@ function Domains() {
     }
   }
 
+  function openRefresh(item) {
+    setActionError(null);
+    setRefreshTarget(item);
+  }
+
+  async function confirmRefresh() {
+    if (!refreshTarget) return;
+    const item = refreshTarget;
+    setRefreshingId(item.id);
+    setActionError(null);
+    setNotice(null);
+    try {
+      await api.refreshDomain(item.id);
+      setRefreshTarget(null);
+      setNotice({
+        type: 'success',
+        message: `${item.display_name || item.domain}: crawl started. PageSpeed audits are running in the background.`,
+      });
+      await reload();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : 'Failed to refresh domain');
+    } finally {
+      setRefreshingId(null);
+    }
+  }
+
   async function handleDelete(item) {
     if (!confirm(`Remove "${item.display_name || item.domain}" and all its pages?`)) return;
     setDeletingId(item.id);
@@ -186,6 +252,12 @@ function Domains() {
         {(error || actionError) && !modalOpen && (
           <div className="mb-6 p-4 bg-red-950/50 border border-red-800 rounded-lg text-red-300 text-sm">
             {actionError || error}
+          </div>
+        )}
+
+        {notice && (
+          <div className="mb-6 p-4 bg-green-950/40 border border-green-800 rounded-lg text-green-200 text-sm">
+            {notice.message}
           </div>
         )}
 
@@ -236,7 +308,9 @@ function Domains() {
                 key={d.id}
                 item={d}
                 onEdit={openEdit}
+                onRefresh={openRefresh}
                 onDelete={handleDelete}
+                refreshing={refreshingId === d.id}
                 deleting={deletingId === d.id}
               />
             ))}
@@ -251,6 +325,22 @@ function Domains() {
         submitting={submitting}
         initial={editing}
         mode={modalMode}
+      />
+
+      <ConfirmModal
+        open={!!refreshTarget}
+        onClose={() => !refreshingId && setRefreshTarget(null)}
+        onConfirm={confirmRefresh}
+        submitting={!!refreshingId}
+        title="Refresh domain?"
+        message={
+          refreshTarget
+            ? `Re-crawl the sitemap for "${refreshTarget.display_name || refreshTarget.domain}" and run mobile + desktop PageSpeed audits for all pages. This may take several minutes.`
+            : ''
+        }
+        confirmLabel="Refresh"
+        cancelLabel="Cancel"
+        icon={<RefreshIcon spinning={!!refreshingId} />}
       />
 
       {actionError && modalOpen && (

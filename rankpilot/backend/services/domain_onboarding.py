@@ -4,6 +4,7 @@ from urllib.parse import urlparse
 
 from db.supabase_client import get_supabase
 from db.supabase_helpers import all_rows, first_row
+from services.pagespeed_batch import audit_domain_pages
 from services.sitemap_crawler import crawl_sitemap
 
 
@@ -61,6 +62,7 @@ async def onboard_domain(
     if existing_row:
         domain_id = existing_row["id"]
         supabase.table("domains").update(domain_fields).eq("id", domain_id).execute()
+        supabase.table("pagespeed_audits").delete().eq("domain_id", domain_id).execute()
         supabase.table("pages").delete().eq("domain_id", domain_id).execute()
     else:
         insert_payload = {
@@ -106,8 +108,14 @@ async def onboard_domain(
 
     return {
         "domain": domain_data,
+        "domain_id": domain_id,
         "crawl": {
             "source": crawl_result.get("source"),
             "total_urls": len(urls),
         },
     }
+
+
+async def run_onboard_pagespeed(domain_id: str) -> dict[str, Any]:
+    """Background step: audit all pages after crawl."""
+    return await audit_domain_pages(domain_id)

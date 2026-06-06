@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from '../api/client';
 
 export default function DomainSelector({ value, onChange, className = '', disabled = false }) {
@@ -49,7 +49,7 @@ export function useDomains() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const reload = () => {
+  const reload = useCallback(() => {
     setLoading(true);
     setError(null);
     return api
@@ -57,11 +57,11 @@ export function useDomains() {
       .then((res) => setDomains(res.data || []))
       .catch((err) => setError(err instanceof ApiError ? err.message : 'Failed to load domains'))
       .finally(() => setLoading(false));
-  };
+  }, []);
 
   useEffect(() => {
     reload();
-  }, []);
+  }, [reload]);
 
   return { domains, loading, error, reload };
 }

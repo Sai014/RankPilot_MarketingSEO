@@ -71,6 +71,7 @@ export const api = {
   },
   updatePage: (pageId, data) =>
     request(`/api/pages/${pageId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  getPageDashboard: (pageId) => request(`/api/pages/${pageId}/dashboard`),
   deletePage: (pageId) => request(`/api/pages/${pageId}`, { method: 'DELETE' }),
 
   // Dashboard

@@ -97,16 +97,27 @@ async def audit_pagespeed(body: PageSpeedRequest) -> dict[str, Any]:
             "save_code": save_code,
         }
     except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code
         logger.error(
             "PageSpeed API error url=%s status=%s",
             body.url,
-            exc.response.status_code,
+            status,
             exc_info=True,
         )
+        if status == 429:
+            raise HTTPException(
+                status_code=429,
+                detail=_error_detail(
+                    "PageSpeed rate limit exceeded. Set GOOGLE_PAGESPEED_API_KEY in "
+                    "backend/.env (Google Cloud → PageSpeed Insights API) for ~25k "
+                    "requests/day, then wait a minute and retry.",
+                    "pagespeed_rate_limited",
+                ),
+            ) from exc
         raise HTTPException(
             status_code=502,
             detail=_error_detail(
-                f"PageSpeed API error: {exc.response.status_code}",
+                f"PageSpeed API error: {status}",
                 "pagespeed_api_error",
             ),
         ) from exc

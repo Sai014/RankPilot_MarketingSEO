@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from '../api/client';
 import DomainSelector, { useSelectedDomain } from '../components/DomainSelector';
@@ -178,6 +179,7 @@ function PageInsights() {
                     <th className="py-3 px-4 font-medium">Path</th>
                     <th className="py-3 px-4 font-medium">Country</th>
                     <th className="py-3 px-4 font-medium">Created</th>
+                    <th className="py-3 px-4 font-medium">Dashboard</th>
                     <th className="py-3 px-4 font-medium">Visit</th>
                     <th className="py-3 px-4 font-medium w-24">Actions</th>
                   </tr>
@@ -203,6 +205,14 @@ function PageInsights() {
                         </td>
                         <td className="py-3 px-4 text-slate-400 whitespace-nowrap">
                           {formatShortDate(pageRow.created_at)}
+                        </td>
+                        <td className="py-3 px-4">
+                          <Link
+                            to={`/pages/${pageRow.id}`}
+                            className="inline-flex items-center gap-1 text-brand-400 hover:text-brand-300 hover:underline text-sm font-medium"
+                          >
+                            View
+                          </Link>
                         </td>
                         <td className="py-3 px-4">
                           <a

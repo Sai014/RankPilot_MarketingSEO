@@ -2,6 +2,7 @@ import { NavLink, Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './auth/AuthProvider';
 import Dashboard from './pages/Dashboard';
 import Domains from './pages/Domains';
+import PageDetail from './pages/PageDetail';
 import PageInsights from './pages/PageInsights';
 import SerpTracker from './pages/SerpTracker';
 import SiteAudit from './pages/SiteAudit';
@@ -105,6 +106,7 @@ function AppLayout() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/domains" element={<Domains />} />
             <Route path="/pages" element={<PageInsights />} />
+            <Route path="/pages/:pageId" element={<PageDetail />} />
             <Route path="/audit" element={<SiteAudit />} />
             <Route path="/serp" element={<SerpTracker />} />
             <Route path="/competitors" element={<Competitors />} />

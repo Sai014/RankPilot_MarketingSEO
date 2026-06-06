@@ -1,13 +1,13 @@
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel, Field
 
 from db.errors import format_db_error
 from db.supabase_client import get_supabase
 from db.supabase_helpers import all_rows, first_row
-from services.domain_onboarding import normalize_domain, onboard_domain, site_url_from_domain
+from services.domain_onboarding import normalize_domain, onboard_domain, run_onboard_pagespeed, site_url_from_domain
 
 router = APIRouter(prefix="/api/domains", tags=["domains"])
 
@@ -58,8 +58,8 @@ async def list_domains() -> dict[str, Any]:
 
 
 @router.post("")
-async def create_domain(body: DomainCreate) -> dict[str, Any]:
-    """Onboard a domain: crawl sitemap and store all pages."""
+async def create_domain(body: DomainCreate, background_tasks: BackgroundTasks) -> dict[str, Any]:
+    """Onboard a domain: crawl sitemap, store pages, then audit PageSpeed in background."""
     normalized = normalize_domain(body.domain)
     try:
         supabase = get_supabase()
@@ -83,6 +83,8 @@ async def create_domain(body: DomainCreate) -> dict[str, Any]:
             target_countries=body.target_countries,
         )
         result["domain"] = _enrich_domain(result["domain"])
+        background_tasks.add_task(run_onboard_pagespeed, result["domain_id"])
+        result["pagespeed"] = {"status": "queued", "message": "Mobile and desktop audits running in background"}
         return {"success": True, "data": result}
     except HTTPException:
         raise
@@ -167,8 +169,12 @@ async def delete_domain(domain_id: str) -> dict[str, Any]:
 
 
 @router.post("/{domain_id}/refresh")
-async def refresh_domain(domain_id: str, max_pages: int = 200) -> dict[str, Any]:
-    """Re-crawl sitemap and refresh pages for an existing domain."""
+async def refresh_domain(
+    domain_id: str,
+    background_tasks: BackgroundTasks,
+    max_pages: int = 200,
+) -> dict[str, Any]:
+    """Re-crawl sitemap, refresh pages, and re-run PageSpeed audits in background."""
     try:
         supabase = get_supabase()
         domain_row = (
@@ -184,6 +190,8 @@ async def refresh_domain(domain_id: str, max_pages: int = 200) -> dict[str, Any]
 
         result = await onboard_domain(row["domain"], max_pages=max_pages)
         result["domain"] = _enrich_domain(result["domain"])
+        background_tasks.add_task(run_onboard_pagespeed, result["domain_id"])
+        result["pagespeed"] = {"status": "queued", "message": "Mobile and desktop audits running in background"}
         return {"success": True, "data": result}
     except HTTPException:
         raise
