@@ -129,6 +129,7 @@ function Domains() {
   const [deletingId, setDeletingId] = useState(null);
   const [refreshingId, setRefreshingId] = useState(null);
   const [refreshTarget, setRefreshTarget] = useState(null);
+  const [refreshAutoSerp, setRefreshAutoSerp] = useState(false);
   const [notice, setNotice] = useState(null);
 
   const hasSyncing = domains.some((d) => d.status === 'syncing');
@@ -178,6 +179,7 @@ function Domains() {
           domain: form.domain,
           display_name: form.display_name,
           target_countries: form.target_countries,
+          auto_serp: form.auto_serp ?? false,
         });
       }
       setModalOpen(false);
@@ -191,21 +193,25 @@ function Domains() {
 
   function openRefresh(item) {
     setActionError(null);
+    setRefreshAutoSerp(false);
     setRefreshTarget(item);
   }
 
   async function confirmRefresh() {
     if (!refreshTarget) return;
     const item = refreshTarget;
+    const autoSerp = refreshAutoSerp;
     setRefreshingId(item.id);
     setActionError(null);
     setNotice(null);
     try {
-      await api.refreshDomain(item.id);
+      await api.refreshDomain(item.id, { auto_serp: autoSerp });
       setRefreshTarget(null);
       setNotice({
         type: 'success',
-        message: `${item.display_name || item.domain}: crawl started. PageSpeed audits are running in the background.`,
+        message: autoSerp
+          ? `${item.display_name || item.domain}: crawl started. SERP and PageSpeed audits running in the background.`
+          : `${item.display_name || item.domain}: crawl started. PageSpeed audits running (SERP skipped).`,
       });
       await reload();
     } catch (err) {
@@ -335,13 +341,29 @@ function Domains() {
         title="Refresh domain?"
         message={
           refreshTarget
-            ? `Re-crawl the sitemap for "${refreshTarget.display_name || refreshTarget.domain}" and run mobile + desktop PageSpeed audits for all pages. This may take several minutes.`
+            ? `Re-crawl the sitemap for "${refreshTarget.display_name || refreshTarget.domain}" and run mobile + desktop PageSpeed audits. This may take several minutes.`
             : ''
         }
         confirmLabel="Refresh"
         cancelLabel="Cancel"
         icon={<RefreshIcon spinning={!!refreshingId} />}
-      />
+      >
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={refreshAutoSerp}
+            onChange={(e) => setRefreshAutoSerp(e.target.checked)}
+            disabled={!!refreshingId}
+            className="mt-0.5 rounded border-slate-600 bg-slate-900 text-brand-500 focus:ring-brand-500"
+          />
+          <span>
+            <span className="block text-sm font-medium text-slate-200">Auto-check SERP rankings</span>
+            <span className="block text-xs text-slate-500 mt-1">
+              One ValueSERP search per page — uses API credits. Uncheck to refresh pages and PageSpeed only.
+            </span>
+          </span>
+        </label>
+      </ConfirmModal>
 
       {actionError && modalOpen && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] px-4 py-2 bg-red-600 text-white text-sm rounded-lg shadow-lg">

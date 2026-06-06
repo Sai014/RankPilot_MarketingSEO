@@ -94,9 +94,9 @@ function Dashboard() {
 
             {selectedDomain?.status === 'syncing' && (
               <div className="rounded-xl border border-brand-500/20 bg-brand-950/20 px-5 py-4">
-                <p className="text-sm font-medium text-brand-200">PageSpeed audits in progress</p>
+                <p className="text-sm font-medium text-brand-200">Audits in progress</p>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Running mobile and desktop audits for each page. Scores will appear in the table as they complete.
+                  Running SERP checks and PageSpeed audits for each page. Rankings and scores will appear as they complete.
                 </p>
               </div>
             )}

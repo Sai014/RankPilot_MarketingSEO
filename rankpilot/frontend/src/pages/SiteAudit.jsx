@@ -1,8 +1,7 @@
-import { useEffect, useState } from 'react';
-
 import { Link } from 'react-router-dom';
-
+import { useEffect, useState } from 'react';
 import { api, ApiError } from '../api/client';
+import AiAnalysisPanel from '../components/AiAnalysisPanel';
 
 import DomainSelector from '../components/DomainSelector';
 
@@ -258,15 +257,12 @@ function SiteAudit() {
 
 
             {analysis && (
-
-              <div className="p-5 bg-slate-900 border border-brand-800/50 rounded-xl">
-
-                <h4 className="text-sm font-semibold text-brand-300 mb-2">AI Analysis</h4>
-
-                <pre className="text-sm text-slate-300 whitespace-pre-wrap font-sans">{analysis.analysis}</pre>
-
-              </div>
-
+              <AiAnalysisPanel
+                title="AI Analysis"
+                subtitle="Insights from your sitemap crawl"
+                analysis={analysis}
+                model={analysis.model}
+              />
             )}
 
           </div>

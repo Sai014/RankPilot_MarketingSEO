@@ -39,6 +39,20 @@ def _pagespeed_by_url(audits: list[dict]) -> dict[str, dict]:
     return by_url
 
 
+def _serp_for_page(tracks: list[dict], page_id: str, page_url: str) -> dict[str, Any] | None:
+    """Latest SERP rank for a page — prefer page_id match, then URL match in organic results."""
+    page_tracks = [t for t in tracks if t.get("page_id") == page_id]
+    if page_tracks:
+        latest = max(page_tracks, key=lambda t: t.get("created_at", ""))
+        return {
+            "keyword": latest.get("keyword"),
+            "rank": latest.get("target_rank"),
+            "location": latest.get("location"),
+            "tracked_at": latest.get("created_at"),
+        }
+    return _serp_rank_for_url(tracks, page_url)
+
+
 def _serp_rank_for_url(tracks: list[dict], page_url: str) -> dict[str, Any] | None:
     page_url_lower = page_url.lower().rstrip("/")
     best = None
@@ -153,7 +167,7 @@ async def domain_dashboard(domain_id: str) -> dict[str, Any]:
             ps = pagespeed_map.get(url, {})
             mobile = ps.get("mobile")
             desktop = ps.get("desktop")
-            serp = _serp_rank_for_url(serp_tracks, url)
+            serp = _serp_for_page(serp_tracks, page["id"], url)
             gsc = metrics_by_page.get(page["id"])
 
             rows.append(

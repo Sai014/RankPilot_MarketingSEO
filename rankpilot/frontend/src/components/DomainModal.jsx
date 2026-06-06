@@ -79,12 +79,14 @@ export default function DomainModal({ open, onClose, onSubmit, submitting, initi
   const [displayName, setDisplayName] = useState('');
   const [domain, setDomain] = useState('');
   const [countries, setCountries] = useState([]);
+  const [autoSerp, setAutoSerp] = useState(false);
 
   useEffect(() => {
     if (open) {
       setDisplayName(initial?.display_name || '');
       setDomain(initial?.domain || '');
       setCountries(initial?.target_countries || []);
+      setAutoSerp(false);
     }
   }, [open, initial]);
 
@@ -96,6 +98,7 @@ export default function DomainModal({ open, onClose, onSubmit, submitting, initi
       display_name: displayName.trim(),
       domain: domain.trim(),
       target_countries: countries,
+      auto_serp: mode === 'add' ? autoSerp : undefined,
     });
   }
 
@@ -161,6 +164,26 @@ export default function DomainModal({ open, onClose, onSubmit, submitting, initi
             </p>
             <CountryMultiSelect value={countries} onChange={setCountries} />
           </div>
+
+          {mode === 'add' && (
+            <label className="flex items-start gap-3 p-4 rounded-lg border border-slate-800 bg-slate-950/50 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={autoSerp}
+                onChange={(e) => setAutoSerp(e.target.checked)}
+                className="mt-0.5 rounded border-slate-600 bg-slate-900 text-brand-500 focus:ring-brand-500"
+              />
+              <span>
+                <span className="block text-sm font-medium text-slate-200">
+                  Auto-check SERP rankings
+                </span>
+                <span className="block text-xs text-slate-500 mt-1">
+                  Runs one ValueSERP search per page after crawl. Uses API credits — leave off to
+                  check keywords manually in SERP Tracker.
+                </span>
+              </span>
+            </label>
+          )}
 
           <div className="flex justify-end gap-3 pt-2">
             <button

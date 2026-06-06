@@ -1,3 +1,4 @@
+import logging
 import re
 from typing import Any
 from urllib.parse import urlparse
@@ -5,7 +6,10 @@ from urllib.parse import urlparse
 from db.supabase_client import get_supabase
 from db.supabase_helpers import all_rows, first_row
 from services.pagespeed_batch import audit_domain_pages
+from services.serp_batch import track_domain_pages
 from services.sitemap_crawler import crawl_sitemap
+
+logger = logging.getLogger(__name__)
 
 
 def normalize_domain(domain: str) -> str:
@@ -116,6 +120,19 @@ async def onboard_domain(
     }
 
 
-async def run_onboard_pagespeed(domain_id: str) -> dict[str, Any]:
-    """Background step: audit all pages after crawl."""
-    return await audit_domain_pages(domain_id)
+async def run_onboard_audits(domain_id: str, auto_serp: bool = False) -> dict[str, Any]:
+    """Background step: optional SERP tracking + PageSpeed for all pages after crawl."""
+    supabase = get_supabase()
+    supabase.table("domains").update({"status": "syncing"}).eq("id", domain_id).execute()
+    try:
+        serp: dict[str, Any]
+        if auto_serp:
+            supabase.table("serp_tracks").delete().eq("domain_id", domain_id).execute()
+            serp = await track_domain_pages(domain_id)
+        else:
+            serp = {"domain_id": domain_id, "skipped": True, "reason": "auto_serp disabled"}
+            logger.info("SERP batch skipped domain_id=%s (auto_serp=false)", domain_id)
+        pagespeed = await audit_domain_pages(domain_id, manage_status=False)
+        return {"domain_id": domain_id, "auto_serp": auto_serp, "serp": serp, "pagespeed": pagespeed}
+    finally:
+        supabase.table("domains").update({"status": "active"}).eq("id", domain_id).execute()

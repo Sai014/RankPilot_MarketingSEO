@@ -8,6 +8,7 @@ export default function ConfirmModal({
   cancelLabel = 'Cancel',
   submitting = false,
   icon = null,
+  children = null,
 }) {
   if (!open) return null;
 
@@ -29,6 +30,7 @@ export default function ConfirmModal({
             <div className="flex-1 min-w-0">
               <h2 className="text-lg font-semibold text-white">{title}</h2>
               <p className="text-sm text-slate-400 mt-2 leading-relaxed">{message}</p>
+              {children && <div className="mt-4">{children}</div>}
             </div>
             <button
               type="button"

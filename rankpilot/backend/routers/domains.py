@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from db.errors import format_db_error
 from db.supabase_client import get_supabase
 from db.supabase_helpers import all_rows, first_row
-from services.domain_onboarding import normalize_domain, onboard_domain, run_onboard_pagespeed, site_url_from_domain
+from services.domain_onboarding import normalize_domain, onboard_domain, run_onboard_audits, site_url_from_domain
 
 router = APIRouter(prefix="/api/domains", tags=["domains"])
 
@@ -17,6 +17,18 @@ class DomainCreate(BaseModel):
     display_name: str | None = Field(None, max_length=200)
     target_countries: list[str] = Field(default_factory=list)
     max_pages: int = Field(default=200, ge=1, le=500)
+    auto_serp: bool = Field(
+        default=False,
+        description="If true, run ValueSERP checks for every page after crawl (uses API credits)",
+    )
+
+
+class DomainRefresh(BaseModel):
+    max_pages: int = Field(default=200, ge=1, le=500)
+    auto_serp: bool = Field(
+        default=False,
+        description="If true, re-run ValueSERP checks for every page (uses API credits)",
+    )
 
 
 class DomainUpdate(BaseModel):
@@ -83,8 +95,12 @@ async def create_domain(body: DomainCreate, background_tasks: BackgroundTasks) -
             target_countries=body.target_countries,
         )
         result["domain"] = _enrich_domain(result["domain"])
-        background_tasks.add_task(run_onboard_pagespeed, result["domain_id"])
-        result["pagespeed"] = {"status": "queued", "message": "Mobile and desktop audits running in background"}
+        background_tasks.add_task(run_onboard_audits, result["domain_id"], body.auto_serp)
+        if body.auto_serp:
+            audit_msg = "SERP tracking and PageSpeed audits running in background"
+        else:
+            audit_msg = "PageSpeed audits running in background (SERP skipped to save credits)"
+        result["audits"] = {"status": "queued", "auto_serp": body.auto_serp, "message": audit_msg}
         return {"success": True, "data": result}
     except HTTPException:
         raise
@@ -171,10 +187,10 @@ async def delete_domain(domain_id: str) -> dict[str, Any]:
 @router.post("/{domain_id}/refresh")
 async def refresh_domain(
     domain_id: str,
+    body: DomainRefresh,
     background_tasks: BackgroundTasks,
-    max_pages: int = 200,
 ) -> dict[str, Any]:
-    """Re-crawl sitemap, refresh pages, and re-run PageSpeed audits in background."""
+    """Re-crawl sitemap, refresh pages, and run background audits."""
     try:
         supabase = get_supabase()
         domain_row = (
@@ -188,10 +204,14 @@ async def refresh_domain(
         if not row:
             raise HTTPException(status_code=404, detail=_error_detail("Domain not found", "not_found"))
 
-        result = await onboard_domain(row["domain"], max_pages=max_pages)
+        result = await onboard_domain(row["domain"], max_pages=body.max_pages)
         result["domain"] = _enrich_domain(result["domain"])
-        background_tasks.add_task(run_onboard_pagespeed, result["domain_id"])
-        result["pagespeed"] = {"status": "queued", "message": "Mobile and desktop audits running in background"}
+        background_tasks.add_task(run_onboard_audits, result["domain_id"], body.auto_serp)
+        if body.auto_serp:
+            audit_msg = "SERP tracking and PageSpeed audits running in background"
+        else:
+            audit_msg = "PageSpeed audits running in background (SERP skipped to save credits)"
+        result["audits"] = {"status": "queued", "auto_serp": body.auto_serp, "message": audit_msg}
         return {"success": True, "data": result}
     except HTTPException:
         raise

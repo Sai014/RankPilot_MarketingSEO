@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api, ApiError } from '../api/client';
+import AiAnalysisPanel from '../components/AiAnalysisPanel';
 
 function Competitors() {
   const [mode, setMode] = useState('scrape');
@@ -47,7 +48,7 @@ function Competitors() {
       setResult(res.data);
       setAnalysis(res.analysis);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Comparison failed');
+      setError(err instanceof ApiError ? err.message : err?.message || 'Comparison failed');
     } finally {
       setLoading(false);
     }
@@ -176,10 +177,12 @@ function Competitors() {
         <div className="space-y-4">
           <ScrapeCard data={result} />
           {analysis && (
-            <div className="p-5 bg-slate-900 border border-brand-800/50 rounded-xl">
-              <h4 className="text-sm font-semibold text-brand-300 mb-2">AI Analysis</h4>
-              <pre className="text-sm text-slate-300 whitespace-pre-wrap font-sans">{analysis.analysis}</pre>
-            </div>
+            <AiAnalysisPanel
+              title="AI Analysis"
+              subtitle="On-page SEO insights for this competitor page"
+              analysis={analysis}
+              model={analysis.model}
+            />
           )}
         </div>
       )}
@@ -193,10 +196,12 @@ function Competitors() {
             <ScrapeCard key={i} data={c} />
           ))}
           {analysis && (
-            <div className="p-5 bg-slate-900 border border-brand-800/50 rounded-xl">
-              <h4 className="text-sm font-semibold text-brand-300 mb-2">Competitive Gap Analysis</h4>
-              <pre className="text-sm text-slate-300 whitespace-pre-wrap font-sans">{analysis.analysis}</pre>
-            </div>
+            <AiAnalysisPanel
+              title="Competitive Gap Analysis"
+              subtitle="How your site compares and what to improve"
+              analysis={analysis}
+              model={analysis.model}
+            />
           )}
         </div>
       )}

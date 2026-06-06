@@ -55,7 +55,12 @@ async def _audit_and_persist(
         return False
 
 
-async def audit_domain_pages(domain_id: str, *, delay_sec: float = DEFAULT_DELAY_SEC) -> dict[str, Any]:
+async def audit_domain_pages(
+    domain_id: str,
+    *,
+    delay_sec: float = DEFAULT_DELAY_SEC,
+    manage_status: bool = True,
+) -> dict[str, Any]:
     """
     Run mobile + desktop PageSpeed for every page in a domain.
     Intended to run after sitemap onboarding (typically as a background task).
@@ -74,7 +79,8 @@ async def audit_domain_pages(domain_id: str, *, delay_sec: float = DEFAULT_DELAY
         return {"domain_id": domain_id, "pages": 0, "audits_ok": 0, "audits_failed": 0}
 
     logger.info("PageSpeed batch start domain_id=%s pages=%d", domain_id, len(pages))
-    supabase.table("domains").update({"status": "syncing"}).eq("id", domain_id).execute()
+    if manage_status:
+        supabase.table("domains").update({"status": "syncing"}).eq("id", domain_id).execute()
 
     ok = 0
     failed = 0
@@ -104,7 +110,8 @@ async def audit_domain_pages(domain_id: str, *, delay_sec: float = DEFAULT_DELAY
                     len(pages),
                 )
     finally:
-        supabase.table("domains").update({"status": "active"}).eq("id", domain_id).execute()
+        if manage_status:
+            supabase.table("domains").update({"status": "active"}).eq("id", domain_id).execute()
 
     summary = {
         "domain_id": domain_id,

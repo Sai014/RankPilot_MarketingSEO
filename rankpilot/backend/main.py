@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 
 from logging_config import setup_logging
 from middleware.request_logging import RequestLoggingMiddleware
-from routers import competitors, dashboard, domains, pages, pagespeed, projects, serp, sitemap
+from routers import competitors, dashboard, domains, pages, pagespeed, profile, projects, serp, sitemap
 
 load_dotenv()
 setup_logging()
@@ -46,6 +46,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(profile.router)
 app.include_router(projects.router)
 app.include_router(domains.router)
 app.include_router(pages.router)

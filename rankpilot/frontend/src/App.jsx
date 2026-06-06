@@ -1,5 +1,6 @@
-import { NavLink, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { NavLink, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth/AuthProvider';
+import SidebarProfile from './components/SidebarProfile';
 import Dashboard from './pages/Dashboard';
 import Domains from './pages/Domains';
 import PageDetail from './pages/PageDetail';
@@ -7,6 +8,7 @@ import PageInsights from './pages/PageInsights';
 import SerpTracker from './pages/SerpTracker';
 import SiteAudit from './pages/SiteAudit';
 import Competitors from './pages/Competitors';
+import Profile from './pages/Profile';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 
@@ -41,29 +43,6 @@ function ProtectedRoute({ children }) {
   return children;
 }
 
-function UserMenu() {
-  const { user, signOut } = useAuth();
-  const navigate = useNavigate();
-
-  async function handleSignOut() {
-    await signOut();
-    navigate('/login');
-  }
-
-  return (
-    <div className="flex items-center gap-4">
-      <span className="text-sm text-slate-400 truncate max-w-[200px]">{user?.email}</span>
-      <button
-        type="button"
-        onClick={handleSignOut}
-        className="text-sm font-medium text-slate-300 hover:text-white px-3 py-1.5 rounded-lg border border-slate-700 hover:border-slate-600 transition-colors"
-      >
-        Sign Out
-      </button>
-    </div>
-  );
-}
-
 function AppLayout() {
   return (
     <div className="flex h-screen overflow-hidden">
@@ -92,29 +71,23 @@ function AppLayout() {
             </NavLink>
           ))}
         </nav>
-        <div className="p-4 border-t border-slate-800">
-          <p className="text-xs text-slate-600">Domain → Pages → Metrics</p>
-        </div>
+        <SidebarProfile />
       </aside>
 
-      <div className="flex-1 flex flex-col h-full overflow-hidden bg-slate-950">
-        <header className="shrink-0 flex items-center justify-end px-6 py-3 border-b border-slate-800 bg-slate-900/50">
-          <UserMenu />
-        </header>
-        <main className="flex-1 overflow-y-auto">
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/domains" element={<Domains />} />
-            <Route path="/pages" element={<PageInsights />} />
-            <Route path="/pages/:pageId" element={<PageDetail />} />
-            <Route path="/audit" element={<SiteAudit />} />
-            <Route path="/serp" element={<SerpTracker />} />
-            <Route path="/competitors" element={<Competitors />} />
-            <Route path="/dashboard" element={<Navigate to="/" replace />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </main>
-      </div>
+      <main className="flex-1 overflow-y-auto bg-slate-950">
+        <Routes>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/domains" element={<Domains />} />
+          <Route path="/pages" element={<PageInsights />} />
+          <Route path="/pages/:pageId" element={<PageDetail />} />
+          <Route path="/audit" element={<SiteAudit />} />
+          <Route path="/serp" element={<SerpTracker />} />
+          <Route path="/competitors" element={<Competitors />} />
+          <Route path="/profile" element={<Profile />} />
+          <Route path="/dashboard" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </main>
     </div>
   );
 }

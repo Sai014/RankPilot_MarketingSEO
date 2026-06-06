@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api, ApiError } from '../api/client';
+import AiAnalysisPanel from './AiAnalysisPanel';
 import { scoreColor, scorePct } from '../lib/dashboard';
 
 function ScoreCard({ label, score }) {
@@ -173,9 +174,13 @@ export default function PageSpeedPanel({
       </form>
 
       {analysis && (
-        <div className="mt-6 p-5 bg-slate-950/60 border border-brand-800/50 rounded-xl">
-          <h4 className="text-sm font-semibold text-brand-300 mb-2">AI Recommendations</h4>
-          <pre className="text-sm text-slate-300 whitespace-pre-wrap font-sans">{analysis.analysis}</pre>
+        <div className="mt-6">
+          <AiAnalysisPanel
+            title="AI Recommendations"
+            subtitle="Performance and SEO fixes for this page"
+            analysis={analysis}
+            model={analysis.model}
+          />
         </div>
       )}
     </div>

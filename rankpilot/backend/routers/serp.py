@@ -8,7 +8,9 @@ from pydantic import BaseModel, Field
 
 from db.audit_store import persist_audit_row
 from db.supabase_client import get_supabase
+from db.supabase_helpers import all_rows
 from services.groq_client import safe_analyze_with_groq
+from services.serp_helpers import build_optimization_prompt, build_serp_summary, find_domain_rank
 from services.serp_tracker import track_serp
 
 logger = logging.getLogger(__name__)
@@ -22,26 +24,16 @@ class SerpTrackRequest(BaseModel):
     google_domain: str = "google.com"
     gl: str = "us"
     hl: str = "en"
-    num: int = Field(default=10, ge=1, le=100)
+    num: int = Field(default=100, ge=1, le=100)
     project_id: str | None = None
     domain_id: str | None = None
     page_id: str | None = None
     target_domain: str | None = None
-    analyze: bool = False
+    analyze: bool = True
 
 
 def _error_detail(message: str, code: str = "error") -> dict[str, str]:
     return {"error": message, "code": code}
-
-
-def _find_domain_rank(organic: list[dict], target_domain: str) -> int | None:
-    target = target_domain.lower().replace("www.", "")
-    for item in organic:
-        link = (item.get("link") or "").lower()
-        domain = (item.get("domain") or "").lower().replace("www.", "")
-        if target in link or target in domain:
-            return item.get("position")
-    return None
 
 
 @router.post("/track")
@@ -70,7 +62,7 @@ async def track_keyword(body: SerpTrackRequest) -> dict[str, Any]:
 
         domain_rank = None
         if body.target_domain:
-            domain_rank = _find_domain_rank(result["organic_results"], body.target_domain)
+            domain_rank = find_domain_rank(result["organic_results"], body.target_domain)
             result["target_domain"] = body.target_domain
             result["target_rank"] = domain_rank
             logger.info(
@@ -80,19 +72,29 @@ async def track_keyword(body: SerpTrackRequest) -> dict[str, Any]:
                 domain_rank,
             )
 
+        summary = build_serp_summary(
+            result,
+            target_domain=body.target_domain,
+            target_rank=domain_rank,
+        )
+
         analysis = None
         analysis_error = None
         if body.analyze:
-            top_results = "\n".join(
-                f"{r['position']}. {r['title']} — {r['link']}"
-                for r in result["organic_results"][:10]
+            prompt = build_optimization_prompt(
+                keyword=body.keyword,
+                location=body.location,
+                result=result,
+                target_domain=body.target_domain,
+                target_rank=domain_rank,
             )
-            prompt = (
-                f"SERP analysis for keyword: '{body.keyword}'\n"
-                f"Top results:\n{top_results}\n\n"
-                "Summarize ranking patterns, content types winning, and opportunities."
+            analysis, analysis_error = await safe_analyze_with_groq(
+                prompt,
+                system=(
+                    "You are an expert SEO strategist. Give clear SERP summaries and "
+                    "actionable optimization advice to improve rankings."
+                ),
             )
-            analysis, analysis_error = await safe_analyze_with_groq(prompt)
 
         persisted = False
         save_error = None
@@ -125,6 +127,7 @@ async def track_keyword(body: SerpTrackRequest) -> dict[str, Any]:
         return {
             "success": True,
             "data": result,
+            "summary": summary,
             "analysis": analysis,
             "analysis_error": analysis_error,
             "persisted": persisted,
@@ -176,6 +179,32 @@ async def serp_history(project_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=503, detail=_error_detail(str(exc), "config_error")) from exc
     except Exception as exc:
         logger.exception("Failed to fetch SERP history project_id=%s", project_id)
+        raise HTTPException(
+            status_code=500,
+            detail=_error_detail(f"Failed to fetch SERP history: {exc}", "db_error"),
+        ) from exc
+
+
+@router.get("/history/domain/{domain_id}")
+async def serp_history_by_domain(domain_id: str) -> dict[str, Any]:
+    try:
+        supabase = get_supabase()
+        result = (
+            supabase.table("serp_tracks")
+            .select("*")
+            .eq("domain_id", domain_id)
+            .order("created_at", desc=True)
+            .limit(100)
+            .execute()
+        )
+        rows = all_rows(result)
+        logger.info("SERP history domain_id=%s count=%d", domain_id, len(rows))
+        return {"success": True, "data": rows}
+    except RuntimeError as exc:
+        logger.error("SERP history config error: %s", exc)
+        raise HTTPException(status_code=503, detail=_error_detail(str(exc), "config_error")) from exc
+    except Exception as exc:
+        logger.exception("Failed to fetch SERP history domain_id=%s", domain_id)
         raise HTTPException(
             status_code=500,
             detail=_error_detail(f"Failed to fetch SERP history: {exc}", "db_error"),
