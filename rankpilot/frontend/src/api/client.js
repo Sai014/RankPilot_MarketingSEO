@@ -1,3 +1,5 @@
+import { supabase } from '../lib/supabase';
+
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
 class ApiError extends Error {
@@ -8,11 +10,22 @@ class ApiError extends Error {
   }
 }
 
+async function authHeaders() {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  return headers;
+}
+
 async function request(path, options = {}) {
   const url = `${API_BASE}${path}`;
+  const headers = await authHeaders();
   const config = {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
     ...options,
+    headers: { ...headers, ...options.headers },
   };
 
   let response;
@@ -62,6 +75,13 @@ export const api = {
 
   // Dashboard
   getDashboard: (domainId) => request(`/api/dashboard/${domainId}`),
+
+  // Projects
+  listProjects: () => request('/api/projects'),
+  createProject: (data) => request('/api/projects', { method: 'POST', body: JSON.stringify(data) }),
+  getProject: (id) => request(`/api/projects/${id}`),
+  updateProject: (id, data) => request(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteProject: (id) => request(`/api/projects/${id}`, { method: 'DELETE' }),
 
   // Legacy / tools (still available via API)
   crawlSitemap: (data) => request('/api/sitemap/crawl', { method: 'POST', body: JSON.stringify(data) }),

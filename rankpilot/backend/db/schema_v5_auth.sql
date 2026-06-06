@@ -1,84 +1,27 @@
--- RankPilot Supabase schema
--- Run this in Supabase Dashboard → SQL Editor → New query → Run
+-- RankPilot schema v5: auth user_id + RLS (safe to re-run on existing DB)
+-- Run in Supabase SQL Editor if schema.sql failed partway through
 
--- Projects (new installs include user_id; existing tables migrated below)
-CREATE TABLE IF NOT EXISTS projects (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  name TEXT NOT NULL,
-  domain TEXT NOT NULL,
-  description TEXT,
-  created_at TIMESTAMPTZ DEFAULT now()
-);
-
--- Migration: add user_id to existing projects tables (must run before index/policies)
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
-
 CREATE INDEX IF NOT EXISTS idx_projects_user_id ON projects(user_id);
 
--- Sitemap audits
-CREATE TABLE IF NOT EXISTS sitemap_audits (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
-  site_url TEXT NOT NULL,
-  total_urls INTEGER,
-  source TEXT,
-  result JSONB,
-  created_at TIMESTAMPTZ DEFAULT now()
-);
-
--- SERP tracks
-CREATE TABLE IF NOT EXISTS serp_tracks (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
-  keyword TEXT NOT NULL,
-  location TEXT,
-  target_domain TEXT,
-  target_rank INTEGER,
-  result JSONB,
-  created_at TIMESTAMPTZ DEFAULT now()
-);
-
--- PageSpeed audits
-CREATE TABLE IF NOT EXISTS pagespeed_audits (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
-  url TEXT NOT NULL,
-  strategy TEXT,
-  result JSONB,
-  created_at TIMESTAMPTZ DEFAULT now()
-);
-
--- Competitor scrapes
-CREATE TABLE IF NOT EXISTS competitor_scrapes (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
-  url TEXT NOT NULL,
-  result JSONB,
-  created_at TIMESTAMPTZ DEFAULT now()
-);
-
--- Row Level Security
 ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sitemap_audits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE serp_tracks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE pagespeed_audits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE competitor_scrapes ENABLE ROW LEVEL SECURITY;
 
--- Drop legacy open policies
 DROP POLICY IF EXISTS "Allow all" ON projects;
 DROP POLICY IF EXISTS "Allow all" ON sitemap_audits;
 DROP POLICY IF EXISTS "Allow all" ON serp_tracks;
 DROP POLICY IF EXISTS "Allow all" ON pagespeed_audits;
 DROP POLICY IF EXISTS "Allow all" ON competitor_scrapes;
 
--- Projects: users own their rows
 DROP POLICY IF EXISTS "Users manage own projects" ON projects;
 CREATE POLICY "Users manage own projects" ON projects
   FOR ALL
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
 
--- Child tables: access via owning project
 DROP POLICY IF EXISTS "Users manage own sitemap_audits" ON sitemap_audits;
 CREATE POLICY "Users manage own sitemap_audits" ON sitemap_audits
   FOR ALL
@@ -151,5 +94,4 @@ CREATE POLICY "Users manage own competitor_scrapes" ON competitor_scrapes
     )
   );
 
--- Reload PostgREST schema cache (fixes PGRST205 after creating tables)
 NOTIFY pgrst, 'reload schema';

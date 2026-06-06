@@ -1,12 +1,13 @@
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from db.errors import format_db_error
 from db.supabase_client import get_supabase
-from db.supabase_helpers import all_rows, first_row
+from db.supabase_helpers import first_row
+from middleware.auth import require_user
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -27,12 +28,30 @@ def _error_detail(message: str, code: str = "error") -> dict[str, str]:
     return {"error": message, "code": code}
 
 
+def _user_id(user: dict[str, Any]) -> str:
+    uid = user.get("id")
+    if not uid:
+        raise HTTPException(
+            status_code=401,
+            detail=_error_detail("Invalid user session", "unauthorized"),
+        )
+    return str(uid)
+
+
 @router.get("")
-async def list_projects() -> dict[str, Any]:
+async def list_projects(user: dict = Depends(require_user)) -> dict[str, Any]:
     try:
         supabase = get_supabase()
-        result = supabase.table("projects").select("*").order("created_at", desc=True).execute()
+        result = (
+            supabase.table("projects")
+            .select("*")
+            .eq("user_id", _user_id(user))
+            .order("created_at", desc=True)
+            .execute()
+        )
         return {"success": True, "data": result.data or []}
+    except HTTPException:
+        raise
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=_error_detail(str(exc), "config_error")) from exc
     except Exception as exc:
@@ -45,13 +64,14 @@ async def list_projects() -> dict[str, Any]:
 
 
 @router.post("")
-async def create_project(body: ProjectCreate) -> dict[str, Any]:
+async def create_project(body: ProjectCreate, user: dict = Depends(require_user)) -> dict[str, Any]:
     try:
         supabase = get_supabase()
         payload = {
             "name": body.name,
             "domain": body.domain,
             "description": body.description,
+            "user_id": _user_id(user),
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         result = supabase.table("projects").insert(payload).execute()
@@ -75,13 +95,14 @@ async def create_project(body: ProjectCreate) -> dict[str, Any]:
 
 
 @router.get("/{project_id}")
-async def get_project(project_id: str) -> dict[str, Any]:
+async def get_project(project_id: str, user: dict = Depends(require_user)) -> dict[str, Any]:
     try:
         supabase = get_supabase()
         result = (
             supabase.table("projects")
             .select("*")
             .eq("id", project_id)
+            .eq("user_id", _user_id(user))
             .maybe_single()
             .execute()
         )
@@ -104,7 +125,11 @@ async def get_project(project_id: str) -> dict[str, Any]:
 
 
 @router.patch("/{project_id}")
-async def update_project(project_id: str, body: ProjectUpdate) -> dict[str, Any]:
+async def update_project(
+    project_id: str,
+    body: ProjectUpdate,
+    user: dict = Depends(require_user),
+) -> dict[str, Any]:
     try:
         updates = body.model_dump(exclude_unset=True)
         if not updates:
@@ -118,6 +143,7 @@ async def update_project(project_id: str, body: ProjectUpdate) -> dict[str, Any]
             supabase.table("projects")
             .update(updates)
             .eq("id", project_id)
+            .eq("user_id", _user_id(user))
             .execute()
         )
         if not result.data:
@@ -138,10 +164,16 @@ async def update_project(project_id: str, body: ProjectUpdate) -> dict[str, Any]
 
 
 @router.delete("/{project_id}")
-async def delete_project(project_id: str) -> dict[str, Any]:
+async def delete_project(project_id: str, user: dict = Depends(require_user)) -> dict[str, Any]:
     try:
         supabase = get_supabase()
-        result = supabase.table("projects").delete().eq("id", project_id).execute()
+        result = (
+            supabase.table("projects")
+            .delete()
+            .eq("id", project_id)
+            .eq("user_id", _user_id(user))
+            .execute()
+        )
         if not result.data:
             raise HTTPException(
                 status_code=404,

@@ -27,76 +27,40 @@ rankpilot/
 
 ### 1. Supabase Setup
 
-Create a project at [supabase.com](https://supabase.com), then run this SQL in the **SQL Editor**:
+Create a project at [supabase.com](https://supabase.com), then run the SQL in `backend/db/schema.sql` in the **SQL Editor** (includes `user_id` on projects and Row Level Security policies).
+
+Copy your **Project URL** and keys from Settings → API:
+- **anon key** → frontend `VITE_SUPABASE_ANON_KEY`
+- **service role key** → backend `SUPABASE_KEY` (recommended so server-side queries work alongside RLS)
+
+#### Supabase Auth (Dashboard)
+
+1. Go to **Authentication → Providers**
+2. Enable **Email** provider (on by default)
+3. Enable **Google** provider → add Google OAuth client ID + secret  
+   (from [Google Cloud Console](https://console.cloud.google.com) → APIs → Credentials → OAuth 2.0)
+4. Set **Site URL** to your Vercel domain (e.g. `https://your-app.vercel.app`)
+5. Add **Redirect URLs**:
+   - `https://your-app.vercel.app/**`
+   - `http://localhost:5173/**`
+
+#### Schema (excerpt)
 
 ```sql
--- Projects
+-- Projects (per-user)
 CREATE TABLE projects (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   domain TEXT NOT NULL,
   description TEXT,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
--- Sitemap audits
-CREATE TABLE sitemap_audits (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
-  site_url TEXT NOT NULL,
-  total_urls INTEGER,
-  source TEXT,
-  result JSONB,
-  created_at TIMESTAMPTZ DEFAULT now()
-);
+CREATE INDEX idx_projects_user_id ON projects(user_id);
 
--- SERP tracks
-CREATE TABLE serp_tracks (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
-  keyword TEXT NOT NULL,
-  location TEXT,
-  target_domain TEXT,
-  target_rank INTEGER,
-  result JSONB,
-  created_at TIMESTAMPTZ DEFAULT now()
-);
-
--- PageSpeed audits
-CREATE TABLE pagespeed_audits (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
-  url TEXT NOT NULL,
-  strategy TEXT,
-  result JSONB,
-  created_at TIMESTAMPTZ DEFAULT now()
-);
-
--- Competitor scrapes
-CREATE TABLE competitor_scrapes (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
-  url TEXT NOT NULL,
-  result JSONB,
-  created_at TIMESTAMPTZ DEFAULT now()
-);
-
--- Enable Row Level Security (optional — open for MVP)
-ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
-ALTER TABLE sitemap_audits ENABLE ROW LEVEL SECURITY;
-ALTER TABLE serp_tracks ENABLE ROW LEVEL SECURITY;
-ALTER TABLE pagespeed_audits ENABLE ROW LEVEL SECURITY;
-ALTER TABLE competitor_scrapes ENABLE ROW LEVEL SECURITY;
-
--- Allow anon access for MVP (tighten before production)
-CREATE POLICY "Allow all" ON projects FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow all" ON sitemap_audits FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow all" ON serp_tracks FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow all" ON pagespeed_audits FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow all" ON competitor_scrapes FOR ALL USING (true) WITH CHECK (true);
+-- ... see backend/db/schema.sql for full schema + RLS policies
 ```
-
-Copy your **Project URL** and **anon/service key** from Settings → API.
 
 ### 2. Backend
 
@@ -124,8 +88,11 @@ API docs: http://localhost:8000/docs
 ```bash
 cd rankpilot/frontend
 npm install
+npm install @supabase/supabase-js react-router-dom
 cp .env.example .env
 # VITE_API_URL=http://localhost:8000
+# VITE_SUPABASE_URL=https://your-project.supabase.co
+# VITE_SUPABASE_ANON_KEY=your-anon-key
 
 npm run dev
 ```
@@ -139,7 +106,7 @@ App: http://localhost:5173
 | Variable | Description |
 |----------|-------------|
 | `SUPABASE_URL` | Supabase project URL |
-| `SUPABASE_KEY` | Supabase anon or service key |
+| `SUPABASE_KEY` | Supabase **service role** key (backend); use service role so API queries work with RLS enabled |
 | `GROQ_API_KEY` | Groq API key from [console.groq.com](https://console.groq.com) |
 | `VALUESERP_API_KEY` | ValueSERP key from [valueserp.com](https://valueserp.com) |
 | `CORS_ORIGINS` | Comma-separated allowed origins |
@@ -150,6 +117,8 @@ App: http://localhost:5173
 | Variable | Description |
 |----------|-------------|
 | `VITE_API_URL` | Backend URL (e.g. `https://rankpilot-api.onrender.com`) |
+| `VITE_SUPABASE_URL` | Supabase project URL |
+| `VITE_SUPABASE_ANON_KEY` | Supabase anon (public) key for client auth |
 
 ## API Endpoints
 

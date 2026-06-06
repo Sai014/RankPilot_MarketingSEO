@@ -1,7 +1,9 @@
 import os
 from functools import lru_cache
+from typing import Any
 
 from dotenv import load_dotenv
+from fastapi import HTTPException
 from supabase import Client, create_client
 
 load_dotenv()
@@ -24,3 +26,28 @@ def get_supabase() -> Client:
 
     _instance = create_client(url, key)
     return _instance
+
+
+def get_current_user(token: str) -> dict[str, Any]:
+    """Validate a JWT via Supabase Auth and return the user object."""
+    try:
+        supabase = get_supabase()
+        response = supabase.auth.get_user(token)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=401,
+            detail={"error": "Invalid or expired token", "code": "unauthorized"},
+        ) from exc
+
+    user = response.user
+    if user is None:
+        raise HTTPException(
+            status_code=401,
+            detail={"error": "Invalid or expired token", "code": "unauthorized"},
+        )
+
+    if hasattr(user, "model_dump"):
+        return user.model_dump()
+    if isinstance(user, dict):
+        return user
+    return {"id": user.id, "email": getattr(user, "email", None)}
