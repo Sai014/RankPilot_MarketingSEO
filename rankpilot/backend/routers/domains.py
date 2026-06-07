@@ -52,6 +52,14 @@ def _error_detail(message: str, code: str = "error") -> dict[str, str]:
     return {"error": message, "code": code}
 
 
+def _heal_stuck_syncing(supabase, row: dict) -> dict:
+    """Crawl finished but PageSpeed/SERP never cleared status (e.g. server restart)."""
+    if row.get("status") == "syncing" and (row.get("page_count") or 0) > 0:
+        supabase.table("domains").update({"status": "active"}).eq("id", row["id"]).execute()
+        return {**row, "status": "active"}
+    return row
+
+
 def _enrich_domain(row: dict) -> dict:
     domain = row.get("domain", "")
     gsc_site_url = row.get("gsc_site_url")
@@ -115,7 +123,7 @@ async def list_domains(user: dict = Depends(require_user)) -> dict[str, Any]:
             .order("created_at", desc=True)
             .execute()
         )
-        domains = [_enrich_domain(d) for d in all_rows(result)]
+        domains = [_enrich_domain(_heal_stuck_syncing(supabase, d)) for d in all_rows(result)]
         return {
             "success": True,
             "data": domains,
@@ -203,6 +211,7 @@ async def get_domain(domain_id: str, user: dict = Depends(require_user)) -> dict
     try:
         supabase = get_supabase()
         row = get_owned_domain(supabase, domain_id, user_id_from(user))
+        row = _heal_stuck_syncing(supabase, row)
         return {"success": True, "data": _enrich_domain(row)}
     except HTTPException:
         raise

@@ -176,6 +176,8 @@ async def run_full_onboarding_pipeline(
             user_id=user_id,
             existing_domain_id=domain_id,
         )
+        # Pages are usable as soon as the crawl finishes — don't block on PageSpeed/SERP.
+        supabase.table("domains").update({"status": "active"}).eq("id", domain_id).execute()
         if sync_gsc:
             await sync_domain_gsc_metrics(domain_id, user_id)
         await run_onboard_audits(domain_id, auto_serp)
@@ -187,16 +189,12 @@ async def run_full_onboarding_pipeline(
 async def run_onboard_audits(domain_id: str, auto_serp: bool = False) -> dict[str, Any]:
     """Background step: optional SERP tracking + PageSpeed for all pages after crawl."""
     supabase = get_supabase()
-    supabase.table("domains").update({"status": "syncing"}).eq("id", domain_id).execute()
-    try:
-        serp: dict[str, Any]
-        if auto_serp:
-            supabase.table("serp_tracks").delete().eq("domain_id", domain_id).execute()
-            serp = await track_domain_pages(domain_id)
-        else:
-            serp = {"domain_id": domain_id, "skipped": True, "reason": "auto_serp disabled"}
-            logger.info("SERP batch skipped domain_id=%s (auto_serp=false)", domain_id)
-        pagespeed = await audit_domain_pages(domain_id, manage_status=False)
-        return {"domain_id": domain_id, "auto_serp": auto_serp, "serp": serp, "pagespeed": pagespeed}
-    finally:
-        supabase.table("domains").update({"status": "active"}).eq("id", domain_id).execute()
+    serp: dict[str, Any]
+    if auto_serp:
+        supabase.table("serp_tracks").delete().eq("domain_id", domain_id).execute()
+        serp = await track_domain_pages(domain_id)
+    else:
+        serp = {"domain_id": domain_id, "skipped": True, "reason": "auto_serp disabled"}
+        logger.info("SERP batch skipped domain_id=%s (auto_serp=false)", domain_id)
+    pagespeed = await audit_domain_pages(domain_id, manage_status=False)
+    return {"domain_id": domain_id, "auto_serp": auto_serp, "serp": serp, "pagespeed": pagespeed}
