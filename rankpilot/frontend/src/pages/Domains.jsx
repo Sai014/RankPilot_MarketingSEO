@@ -53,8 +53,9 @@ function DomainCard({ item, onEdit, onRefresh, onDelete, refreshing, deleting })
   const name = item.display_name || item.domain;
 
   return (
-    <article className="bg-slate-900 border border-slate-800 rounded-xl p-5 hover:border-slate-700 transition-colors">
-      <div className="flex items-start gap-4">
+    <article className="bg-slate-900 border border-slate-800 rounded-xl p-4 sm:p-5 hover:border-slate-700 transition-colors">
+      <div className="flex flex-col gap-4">
+        <div className="flex items-start gap-4">
         <div className="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400 shrink-0">
           <GlobeIcon className="w-5 h-5" />
         </div>
@@ -77,10 +78,10 @@ function DomainCard({ item, onEdit, onRefresh, onDelete, refreshing, deleting })
             <span>{item.sitemap_count ?? (item.sitemap_source === 'sitemap' ? 1 : 0)} sitemap{(item.sitemap_count ?? 1) !== 1 ? 's' : ''}</span>
             <span className="text-slate-700">·</span>
             <span>Added {formatDate(item.created_at)}</span>
-            {item.status === 'syncing' && (
+            {item.status === 'syncing' && (item.page_count ?? 0) === 0 && (
               <>
                 <span className="text-slate-700">·</span>
-                <span className="text-amber-400 font-medium">Syncing…</span>
+                <span className="text-amber-400 font-medium">Crawling…</span>
               </>
             )}
             {item.status === 'error' && (
@@ -97,16 +98,17 @@ function DomainCard({ item, onEdit, onRefresh, onDelete, refreshing, deleting })
             )}
           </div>
         </div>
+        </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 border-t border-slate-800 pt-3 sm:border-0 sm:pt-0 sm:justify-end">
           <button
             type="button"
             onClick={() => onRefresh(item)}
-            disabled={refreshing || deleting || item.status === 'syncing'}
+            disabled={refreshing || deleting || (item.status === 'syncing' && (item.page_count ?? 0) === 0)}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
             title="Re-crawl sitemap and run PageSpeed audits"
           >
-            <RefreshIcon spinning={refreshing || item.status === 'syncing'} />
+            <RefreshIcon spinning={refreshing || (item.status === 'syncing' && (item.page_count ?? 0) === 0)} />
             Refresh
           </button>
           <button
@@ -143,9 +145,10 @@ function Domains() {
   const [refreshingId, setRefreshingId] = useState(null);
   const [refreshTarget, setRefreshTarget] = useState(null);
   const [refreshAutoSerp, setRefreshAutoSerp] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const [notice, setNotice] = useState(null);
 
-  const hasSyncing = domains.some((d) => d.status === 'syncing');
+  const hasSyncing = domains.some((d) => d.status === 'syncing' && (d.page_count ?? 0) === 0);
 
   useEffect(() => {
     if (!hasSyncing) return undefined;
@@ -232,7 +235,7 @@ function Domains() {
         type: 'success',
         message: autoSerp
           ? `${item.display_name || item.domain}: sitemap crawl, SERP, and PageSpeed audits running in the background.`
-          : `${item.display_name || item.domain}: sitemap crawl and PageSpeed audits running in the background (SERP skipped).`,
+          : `${item.display_name || item.domain}: sitemap crawl and PageSpeed audits running in the background.`,
       });
       await reload();
     } catch (err) {
@@ -242,12 +245,19 @@ function Domains() {
     }
   }
 
-  async function handleDelete(item) {
-    if (!confirm(`Remove "${item.display_name || item.domain}" and all its pages?`)) return;
+  function openDelete(item) {
+    setActionError(null);
+    setDeleteTarget(item);
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    const item = deleteTarget;
     setDeletingId(item.id);
     setActionError(null);
     try {
       await api.deleteDomain(item.id);
+      setDeleteTarget(null);
       await reload();
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : 'Failed to delete domain');
@@ -258,10 +268,10 @@ function Domains() {
 
   return (
     <div className="min-h-full">
-      <div className="max-w-4xl mx-auto px-6 py-8">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-8">
         <header className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-white">Domains</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-white">Domains</h1>
             <p className="text-sm text-slate-400 mt-1">
               Manage your tracked websites and their default settings
             </p>
@@ -339,7 +349,7 @@ function Domains() {
                 item={d}
                 onEdit={openEdit}
                 onRefresh={openRefresh}
-                onDelete={handleDelete}
+                onDelete={openDelete}
                 refreshing={refreshingId === d.id}
                 deleting={deletingId === d.id}
               />
@@ -389,6 +399,23 @@ function Domains() {
           </span>
         </label>
       </ConfirmModal>
+
+      <ConfirmModal
+        open={!!deleteTarget}
+        onClose={() => !deletingId && setDeleteTarget(null)}
+        onConfirm={confirmDelete}
+        submitting={!!deletingId}
+        title="Delete domain?"
+        message={
+          deleteTarget
+            ? `Remove "${deleteTarget.display_name || deleteTarget.domain}" and all its tracked pages? This cannot be undone.`
+            : ''
+        }
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        submittingLabel="Deleting…"
+        icon={<TrashIcon />}
+      />
 
       {actionError && modalOpen && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] px-4 py-2 bg-red-600 text-white text-sm rounded-lg shadow-lg">

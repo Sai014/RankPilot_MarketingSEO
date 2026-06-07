@@ -78,13 +78,13 @@ function SiteAudit() {
 
   return (
 
-    <div className="p-8 max-w-5xl">
+    <div className="px-4 sm:px-6 lg:px-8 py-5 sm:py-8 max-w-5xl mx-auto">
 
-      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
+      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6 sm:mb-8">
 
         <div>
 
-          <h2 className="text-2xl font-bold text-white">Site Audit</h2>
+          <h2 className="text-xl sm:text-2xl font-bold text-white">Site Audit</h2>
 
           <p className="text-slate-400 mt-1">Crawl sitemaps to discover and track pages</p>
 
@@ -92,7 +92,7 @@ function SiteAudit() {
 
         {hasDomains && (
 
-          <DomainSelector value={domainId} onChange={setDomainId} disabled={domainsLoading} />
+          <DomainSelector value={domainId} onChange={setDomainId} disabled={domainsLoading} className="w-full sm:w-auto" />
 
         )}
 

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from '../api/client';
 import DomainSelector, { useSelectedDomain } from '../components/DomainSelector';
 import NoDomainPrompt from '../components/NoDomainPrompt';
+import ConfirmModal from '../components/ConfirmModal';
 import PageEditModal from '../components/PageEditModal';
 import Pagination from '../components/Pagination';
 import { formatShortDate, keywordFromPath } from '../lib/domains';
@@ -46,6 +47,7 @@ function PageInsights() {
   const [editingPage, setEditingPage] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
@@ -110,13 +112,19 @@ function PageInsights() {
     }
   }
 
-  async function handleDelete(page) {
-    const keyword = page.keyword || keywordFromPath(page.path);
-    if (!confirm(`Remove "${keyword}" (${page.path || '/'}) from tracking?`)) return;
-    setDeletingId(page.id);
+  function openDelete(pageRow) {
+    setError(null);
+    setDeleteTarget(pageRow);
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    const pageRow = deleteTarget;
+    setDeletingId(pageRow.id);
     setError(null);
     try {
-      await api.deletePage(page.id);
+      await api.deletePage(pageRow.id);
+      setDeleteTarget(null);
       await loadPages();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to delete page');
@@ -126,15 +134,15 @@ function PageInsights() {
   }
 
   return (
-    <div className="p-8 max-w-7xl">
-      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
+    <div className="px-4 sm:px-6 lg:px-8 py-5 sm:py-8 max-w-7xl mx-auto">
+      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6 sm:mb-8">
         <div>
-          <h2 className="text-2xl font-bold text-white">Page Insights</h2>
+          <h2 className="text-xl sm:text-2xl font-bold text-white">Page Insights</h2>
           <p className="text-slate-400 mt-1">
             Tracked pages with keywords derived from URL slugs
           </p>
         </div>
-        {hasDomains && <DomainSelector value={domainId} onChange={setDomainId} />}
+        {hasDomains && <DomainSelector value={domainId} onChange={setDomainId} className="w-full sm:w-auto" />}
       </header>
 
       {error && (
@@ -237,7 +245,7 @@ function PageInsights() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => handleDelete(pageRow)}
+                              onClick={() => openDelete(pageRow)}
                               disabled={deletingId === pageRow.id}
                               className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-950/40 rounded-lg disabled:opacity-50"
                               title="Delete page"
@@ -273,6 +281,23 @@ function PageInsights() {
         submitting={submitting}
         page={editingPage}
         domainCountries={meta?.domain?.target_countries || []}
+      />
+
+      <ConfirmModal
+        open={!!deleteTarget}
+        onClose={() => !deletingId && setDeleteTarget(null)}
+        onConfirm={confirmDelete}
+        submitting={!!deletingId}
+        title="Remove page?"
+        message={
+          deleteTarget
+            ? `Remove "${deleteTarget.keyword || keywordFromPath(deleteTarget.path)}" (${deleteTarget.path || '/'}) from tracking? This cannot be undone.`
+            : ''
+        }
+        confirmLabel="Remove"
+        cancelLabel="Cancel"
+        submittingLabel="Removing…"
+        icon={<TrashIcon />}
       />
     </div>
   );

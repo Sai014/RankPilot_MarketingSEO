@@ -101,13 +101,13 @@ function Competitors() {
   }
 
   return (
-    <div className="p-8 max-w-5xl">
-      <header className="mb-8">
-        <h2 className="text-2xl font-bold text-white">Competitor Analysis</h2>
-        <p className="text-slate-400 mt-1">Scrape on-page SEO signals from competitor pages</p>
+    <div className="px-4 sm:px-6 lg:px-8 py-5 sm:py-8 max-w-5xl mx-auto">
+      <header className="mb-6 sm:mb-8">
+        <h2 className="text-xl sm:text-2xl font-bold text-white">Competitor Analysis</h2>
+        <p className="text-slate-400 mt-1 text-sm sm:text-base">Scrape on-page SEO signals from competitor pages</p>
       </header>
 
-      <div className="flex gap-2 mb-6">
+      <div className="flex flex-wrap gap-2 mb-6">
         {['scrape', 'compare'].map((m) => (
           <button
             key={m}

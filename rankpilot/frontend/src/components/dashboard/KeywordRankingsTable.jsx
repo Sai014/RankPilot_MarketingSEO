@@ -145,10 +145,10 @@ export default function KeywordRankingsTable({ pages = [] }) {
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/50 overflow-hidden">
-      <div className="p-5 border-b border-slate-800">
+      <div className="p-4 sm:p-5 border-b border-slate-800">
         <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
           <div>
-            <h3 className="text-lg font-semibold text-white">Keyword Rankings</h3>
+            <h3 className="text-base sm:text-lg font-semibold text-white">Keyword Rankings</h3>
             <p className="text-sm text-slate-500 mt-0.5">Filter and explore per-page performance</p>
           </div>
           <button

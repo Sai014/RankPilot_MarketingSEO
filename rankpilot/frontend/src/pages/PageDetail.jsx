@@ -33,8 +33,8 @@ function PageDetail() {
   const gsc = data?.gsc;
 
   return (
-    <div className="p-8 max-w-7xl">
-      <div className="mb-8">
+    <div className="px-4 sm:px-6 lg:px-8 py-5 sm:py-8 max-w-7xl mx-auto">
+      <div className="mb-6 sm:mb-8">
         <Link
           to="/pages"
           className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-white mb-4"
@@ -57,7 +57,7 @@ function PageDetail() {
               <p className="text-xs font-medium uppercase tracking-widest text-brand-400/80 mb-2">
                 Page Dashboard
               </p>
-              <h1 className="text-2xl font-bold text-white">{page.keyword}</h1>
+              <h1 className="text-xl sm:text-2xl font-bold text-white break-words">{page.keyword}</h1>
               <p className="text-slate-400 mt-2 font-mono text-sm">{page.path || '/'}</p>
               <a
                 href={page.url}

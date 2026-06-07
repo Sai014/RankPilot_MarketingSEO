@@ -345,6 +345,7 @@ export default function Landing() {
   const mouse = useMousePosition();
   const [scrolled, setScrolled] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [hoveredSerp, setHoveredSerp] = useState(null);
 
   useEffect(() => {
@@ -377,34 +378,85 @@ export default function Landing() {
       {/* Navigation */}
       <header
         className={`sticky top-0 z-50 transition-all duration-500 ${
-          scrolled
+          scrolled || menuOpen
             ? 'border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-xl shadow-lg shadow-black/20 py-3'
-            : 'border-b border-transparent bg-transparent py-5'
+            : 'border-b border-transparent bg-transparent py-4 sm:py-5'
         }`}
       >
-        <div className="max-w-6xl mx-auto px-6 flex items-center justify-between">
-          <Link
-            to="/"
-            className="text-xl font-bold tracking-tight text-white transition-transform duration-300 hover:scale-105"
-          >
-            Rank<span className="text-brand-400">Pilot</span>
-          </Link>
-          <nav className="hidden md:flex items-center gap-8">
-            <NavLink href="#features">Features</NavLink>
-            <NavLink href="#how-it-works">How it works</NavLink>
-            <NavLink href="#google-search">Google Search</NavLink>
-          </nav>
-          <div className="flex items-center gap-3">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+          <div className="flex items-center justify-between">
             <Link
-              to="/login"
-              className="hidden sm:inline text-sm text-slate-400 hover:text-white transition-all duration-300 hover:scale-105"
+              to="/"
+              className="text-xl font-bold tracking-tight text-white transition-transform duration-300 hover:scale-105"
             >
-              Sign in
+              Rank<span className="text-brand-400">Pilot</span>
             </Link>
-            <MagneticButton to="/signup" className="text-sm px-5 py-2.5">
-              Get started
-            </MagneticButton>
+            <nav className="hidden md:flex items-center gap-8">
+              <NavLink href="#features">Features</NavLink>
+              <NavLink href="#how-it-works">How it works</NavLink>
+              <NavLink href="#google-search">Google Search</NavLink>
+            </nav>
+            <div className="flex items-center gap-2 sm:gap-3">
+              <Link
+                to="/login"
+                className="hidden sm:inline text-sm text-slate-400 hover:text-white transition-all duration-300 hover:scale-105"
+              >
+                Sign in
+              </Link>
+              <MagneticButton to="/signup" className="text-sm px-4 sm:px-5 py-2 sm:py-2.5">
+                Get started
+              </MagneticButton>
+              <button
+                type="button"
+                onClick={() => setMenuOpen((v) => !v)}
+                className="md:hidden p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800/60"
+                aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+              >
+                {menuOpen ? (
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                ) : (
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                  </svg>
+                )}
+              </button>
+            </div>
           </div>
+
+          {menuOpen && (
+            <nav className="md:hidden pt-4 pb-2 flex flex-col gap-1 border-t border-slate-800/60 mt-3">
+              <a
+                href="#features"
+                onClick={() => setMenuOpen(false)}
+                className="px-3 py-2.5 text-sm text-slate-300 hover:text-white hover:bg-slate-800/60 rounded-lg transition-colors"
+              >
+                Features
+              </a>
+              <a
+                href="#how-it-works"
+                onClick={() => setMenuOpen(false)}
+                className="px-3 py-2.5 text-sm text-slate-300 hover:text-white hover:bg-slate-800/60 rounded-lg transition-colors"
+              >
+                How it works
+              </a>
+              <a
+                href="#google-search"
+                onClick={() => setMenuOpen(false)}
+                className="px-3 py-2.5 text-sm text-slate-300 hover:text-white hover:bg-slate-800/60 rounded-lg transition-colors"
+              >
+                Google Search
+              </a>
+              <Link
+                to="/login"
+                onClick={() => setMenuOpen(false)}
+                className="px-3 py-2.5 text-sm text-slate-300 hover:text-white hover:bg-slate-800/60 rounded-lg transition-colors sm:hidden"
+              >
+                Sign in
+              </Link>
+            </nav>
+          )}
         </div>
       </header>
 
@@ -419,7 +471,7 @@ export default function Landing() {
           }}
         />
 
-        <div className="max-w-6xl mx-auto px-6 pt-16 pb-8 text-center relative z-10">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-10 sm:pt-16 pb-8 text-center relative z-10">
           <h1
             className={`text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight max-w-4xl mx-auto leading-tight transition-all duration-1000 ${
               mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
@@ -469,7 +521,7 @@ export default function Landing() {
         </div>
 
         {/* Stats cards — overlapping hero */}
-        <div className="max-w-5xl mx-auto px-6 pb-20 relative z-10">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 pb-16 sm:pb-20 relative z-10">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {stats.map((stat, i) => (
               <Reveal key={stat.label} delay={i * 100}>
@@ -492,7 +544,7 @@ export default function Landing() {
       </section>
 
       {/* Features */}
-      <section id="features" className="max-w-6xl mx-auto px-6 py-24 relative z-10">
+      <section id="features" className="max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-24 relative z-10">
         <Reveal>
           <div className="text-center mb-16">
             <p className="text-sm text-brand-400 font-medium mb-3">Everything in one cockpit</p>
@@ -529,7 +581,7 @@ export default function Landing() {
       {/* Google Search Integration */}
       <section id="google-search" className="border-y border-slate-800/40 relative z-10">
         <div className="absolute inset-0 bg-gradient-to-r from-brand-950/30 via-slate-900/50 to-purple-950/30 pointer-events-none" />
-        <div className="max-w-6xl mx-auto px-6 py-24 relative">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-24 relative">
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             <Reveal>
               <div>
@@ -623,7 +675,7 @@ export default function Landing() {
       </section>
 
       {/* How it works */}
-      <section id="how-it-works" className="max-w-6xl mx-auto px-6 py-24 relative z-10">
+      <section id="how-it-works" className="max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-24 relative z-10">
         <Reveal>
           <div className="text-center mb-16">
             <p className="text-sm text-brand-400 font-medium mb-3">How it works</p>
@@ -661,7 +713,7 @@ export default function Landing() {
           }}
         />
         <Reveal>
-          <div className="max-w-6xl mx-auto px-6 py-24 text-center relative">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-24 text-center relative">
             <h2 className="text-3xl sm:text-4xl font-bold text-white max-w-2xl mx-auto">
               Give your marketing team an{' '}
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-300 to-purple-300">
@@ -680,7 +732,7 @@ export default function Landing() {
 
       {/* Footer */}
       <footer className="border-t border-slate-800/40 bg-slate-900/20 relative z-10">
-        <div className="max-w-6xl mx-auto px-6 py-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8 flex flex-col sm:flex-row items-center justify-between gap-4">
           <Link
             to="/"
             className="text-xl font-bold tracking-tight text-white transition-transform duration-300 hover:scale-105"

@@ -34,7 +34,9 @@ function Dashboard() {
   }, [domainId]);
 
   useEffect(() => {
-    if (!domainId || selectedDomain?.status !== 'syncing') return undefined;
+    if (!domainId || selectedDomain?.status !== 'syncing' || (selectedDomain?.page_count ?? 0) > 0) {
+      return undefined;
+    }
     const interval = setInterval(() => {
       api.getDashboard(domainId).then((res) => setData(res.data)).catch(() => {});
     }, 20000);
@@ -49,13 +51,13 @@ function Dashboard() {
         <div className="absolute top-0 right-0 w-96 h-96 bg-brand-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3" />
         <div className="absolute bottom-0 left-0 w-64 h-64 bg-violet-500/10 rounded-full blur-3xl translate-y-1/2 -translate-x-1/4" />
 
-        <div className="relative px-8 py-8 max-w-7xl mx-auto">
+        <div className="relative px-4 sm:px-6 lg:px-8 py-5 sm:py-8 max-w-7xl mx-auto">
           <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
             <div>
               <p className="text-xs font-medium uppercase tracking-widest text-brand-400/80 mb-2">
                 Performance Overview
               </p>
-              <h1 className="text-3xl font-bold text-white tracking-tight">Dashboard</h1>
+              <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">Dashboard</h1>
               <p className="text-slate-400 mt-2 max-w-lg">
                 Track keyword rankings, organic signals, and page health for{' '}
                 <span className="text-slate-300">
@@ -64,16 +66,16 @@ function Dashboard() {
               </p>
             </div>
             {hasDomains && (
-              <div className="shrink-0">
-                <p className="text-xs text-slate-500 mb-1.5 text-right">Active domain</p>
-                <DomainSelector value={domainId} onChange={setDomainId} />
+              <div className="shrink-0 w-full sm:w-auto">
+                <p className="text-xs text-slate-500 mb-1.5 sm:text-right">Active domain</p>
+                <DomainSelector value={domainId} onChange={setDomainId} className="w-full sm:w-auto" />
               </div>
             )}
           </div>
         </div>
       </div>
 
-      <div className="px-8 py-8 max-w-7xl mx-auto space-y-8">
+      <div className="px-4 sm:px-6 lg:px-8 py-5 sm:py-8 max-w-7xl mx-auto space-y-6 sm:space-y-8">
         {error && (
           <div className="p-4 bg-red-950/50 border border-red-800 rounded-xl text-red-300 text-sm">{error}</div>
         )}
@@ -92,21 +94,21 @@ function Dashboard() {
           <>
             <KpiStrip summary={data?.summary} gscLinked={!!data?.domain?.gsc_linked} />
 
-            {selectedDomain?.status === 'syncing' && (
+            {selectedDomain?.status === 'syncing' && (selectedDomain?.page_count ?? 0) === 0 && (
               <div className="rounded-xl border border-brand-500/20 bg-brand-950/20 px-5 py-4">
-                <p className="text-sm font-medium text-brand-200">Audits in progress</p>
+                <p className="text-sm font-medium text-brand-200">Crawl in progress</p>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Running SERP checks and PageSpeed audits for each page. Rankings and scores will appear as they complete.
+                  Discovering pages from your sitemap. PageSpeed scores will populate in the background once crawling finishes.
                 </p>
               </div>
             )}
 
             {/* Charts bento grid */}
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-              <div className="lg:col-span-3 rounded-2xl border border-slate-800 bg-slate-900/50 p-6">
+              <div className="lg:col-span-3 rounded-2xl border border-slate-800 bg-slate-900/50 p-4 sm:p-6">
                 <RankDistributionChart data={data?.charts?.rank_distribution} />
               </div>
-              <div className="lg:col-span-2 rounded-2xl border border-slate-800 bg-slate-900/50 p-6">
+              <div className="lg:col-span-2 rounded-2xl border border-slate-800 bg-slate-900/50 p-4 sm:p-6">
                 <CoveragePanel
                   coverage={data?.charts?.coverage}
                   topRanked={data?.charts?.top_ranked}

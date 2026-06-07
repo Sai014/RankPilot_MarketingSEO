@@ -47,7 +47,7 @@ export default function Signup() {
       <div className="w-full max-w-md">
         <Logo />
 
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 shadow-xl">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 sm:p-8 shadow-xl">
           <h2 className="text-lg font-semibold text-white mb-6">Create your account</h2>
 
           {error && (

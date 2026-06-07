@@ -108,10 +108,10 @@ export default function Profile() {
   }
 
   return (
-    <div className="px-8 py-8 max-w-2xl">
+    <div className="px-4 sm:px-6 lg:px-8 py-5 sm:py-8 max-w-2xl mx-auto">
       <div className="mb-8">
         <p className="text-xs font-medium uppercase tracking-widest text-brand-400/80 mb-2">Account</p>
-        <h1 className="text-3xl font-bold text-white tracking-tight">Company Profile</h1>
+        <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">Company Profile</h1>
         <p className="text-slate-400 mt-2">Manage your company details and logo.</p>
       </div>
 

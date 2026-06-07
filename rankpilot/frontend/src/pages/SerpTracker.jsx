@@ -65,16 +65,16 @@ function SerpTracker() {
   }
 
   return (
-    <div className="p-8 max-w-5xl">
-      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
+    <div className="px-4 sm:px-6 lg:px-8 py-5 sm:py-8 max-w-5xl mx-auto">
+      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6 sm:mb-8">
         <div>
-          <h2 className="text-2xl font-bold text-white">SERP Tracker</h2>
+          <h2 className="text-xl sm:text-2xl font-bold text-white">SERP Tracker</h2>
           <p className="text-slate-400 mt-1">
             Check where your site ranks for any keyword and get AI optimization tips
           </p>
         </div>
         {hasDomains && (
-          <DomainSelector value={domainId} onChange={setDomainId} disabled={domainsLoading} />
+          <DomainSelector value={domainId} onChange={setDomainId} disabled={domainsLoading} className="w-full sm:w-auto" />
         )}
       </header>
 
