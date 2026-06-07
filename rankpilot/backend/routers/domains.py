@@ -70,7 +70,7 @@ def _enrich_domain(row: dict) -> dict:
 def _onboarding_message(auto_serp: bool) -> str:
     if auto_serp:
         return "Sitemap crawl, SERP checks, and PageSpeed audits running in background"
-    return "Sitemap crawl and PageSpeed audits running in background (SERP skipped to save credits)"
+    return "Sitemap crawl and PageSpeed audits running in background"
 
 
 def _queue_onboarding(
