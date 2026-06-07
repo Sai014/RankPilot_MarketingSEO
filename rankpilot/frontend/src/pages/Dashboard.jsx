@@ -90,7 +90,7 @@ function Dashboard() {
           <p className="text-slate-500">Loading dashboard…</p>
         ) : (
           <>
-            <KpiStrip summary={data?.summary} />
+            <KpiStrip summary={data?.summary} gscLinked={!!data?.domain?.gsc_linked} />
 
             {selectedDomain?.status === 'syncing' && (
               <div className="rounded-xl border border-brand-500/20 bg-brand-950/20 px-5 py-4">

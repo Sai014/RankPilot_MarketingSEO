@@ -65,6 +65,15 @@ export const api = {
   refreshDomain: (id, data = {}) =>
     request(`/api/domains/${id}/refresh`, { method: 'POST', body: JSON.stringify(data) }),
 
+  // Google Search Console (Composio)
+  getGoogleStatus: () => request('/api/integrations/google/status'),
+  connectGoogle: () => request('/api/integrations/google/connect', { method: 'POST' }),
+  completeGoogleConnect: () => request('/api/integrations/google/complete', { method: 'POST' }),
+  disconnectGoogle: () => request('/api/integrations/google/disconnect', { method: 'DELETE' }),
+  listGscProperties: () => request('/api/integrations/google/gsc/properties'),
+  syncGscMetrics: (domainId) =>
+    request(`/api/integrations/google/gsc/sync/${domainId}`, { method: 'POST' }),
+
   // Pages
   listPages: (domainId, params = {}) => {
     const qs = new URLSearchParams({ domain_id: domainId, ...params });

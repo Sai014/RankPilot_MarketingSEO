@@ -32,14 +32,14 @@ export default function Login() {
       setError(signInError.message);
       return;
     }
-    navigate('/');
+    navigate('/dashboard');
   }
 
   async function handleGoogleSignIn() {
     setError(null);
     const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: `${window.location.origin}/` },
+      options: { redirectTo: `${window.location.origin}/dashboard` },
     });
     if (oauthError) {
       setError(oauthError.message);

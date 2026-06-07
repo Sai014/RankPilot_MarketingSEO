@@ -1,6 +1,5 @@
 from typing import Any
 
-import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -9,7 +8,13 @@ from db.errors import format_db_error
 from db.supabase_client import get_supabase
 from db.supabase_helpers import all_rows, first_row
 from middleware.auth import require_user
-from services.domain_onboarding import normalize_domain, onboard_domain, run_onboard_audits, site_url_from_domain
+from services.domain_onboarding import (
+    create_pending_domain,
+    normalize_domain,
+    run_full_onboarding_pipeline,
+    site_url_from_domain,
+)
+from services.gsc_sync import gsc_site_to_domain
 
 router = APIRouter(prefix="/api/domains", tags=["domains"])
 
@@ -22,6 +27,11 @@ class DomainCreate(BaseModel):
     auto_serp: bool = Field(
         default=False,
         description="If true, run ValueSERP checks for every page after crawl (uses API credits)",
+    )
+    gsc_site_url: str | None = Field(
+        None,
+        max_length=500,
+        description="Exact GSC property URL when importing from Google Search Console",
     )
 
 
@@ -44,11 +54,52 @@ def _error_detail(message: str, code: str = "error") -> dict[str, str]:
 
 def _enrich_domain(row: dict) -> dict:
     domain = row.get("domain", "")
+    gsc_site_url = row.get("gsc_site_url")
     return {
         **row,
         "url": site_url_from_domain(domain),
         "display_name": row.get("display_name") or domain,
         "target_countries": row.get("target_countries") or [],
+        "source": row.get("source") or "manual",
+        "gsc_linked": bool(gsc_site_url),
+        "gsc_site_url": gsc_site_url,
+        "gsc_last_synced_at": row.get("gsc_last_synced_at"),
+    }
+
+
+def _onboarding_message(auto_serp: bool) -> str:
+    if auto_serp:
+        return "Sitemap crawl, SERP checks, and PageSpeed audits running in background"
+    return "Sitemap crawl and PageSpeed audits running in background (SERP skipped to save credits)"
+
+
+def _queue_onboarding(
+    background_tasks: BackgroundTasks,
+    *,
+    domain_id: str,
+    domain: str,
+    max_pages: int,
+    user_id: str,
+    auto_serp: bool,
+    display_name: str | None = None,
+    target_countries: list[str] | None = None,
+    sync_gsc: bool = False,
+) -> dict[str, Any]:
+    background_tasks.add_task(
+        run_full_onboarding_pipeline,
+        domain_id,
+        domain,
+        max_pages,
+        user_id,
+        auto_serp,
+        display_name,
+        target_countries,
+        sync_gsc,
+    )
+    return {
+        "status": "queued",
+        "auto_serp": auto_serp,
+        "message": _onboarding_message(auto_serp),
     }
 
 
@@ -86,9 +137,12 @@ async def create_domain(
     background_tasks: BackgroundTasks,
     user: dict = Depends(require_user),
 ) -> dict[str, Any]:
-    """Onboard a domain: crawl sitemap, store pages, then audit PageSpeed in background."""
+    """Create domain immediately, then crawl sitemap and run audits in the background."""
     normalized = normalize_domain(body.domain)
+    if body.gsc_site_url:
+        normalized = gsc_site_to_domain(body.gsc_site_url)
     uid = user_id_from(user)
+    display_name = body.display_name or normalized
     try:
         supabase = get_supabase()
         dup = (
@@ -105,28 +159,37 @@ async def create_domain(
                 detail=_error_detail(f"Domain '{normalized}' already onboarded", "duplicate_domain"),
             )
 
-        result = await onboard_domain(
+        domain_row = create_pending_domain(
             normalized,
-            max_pages=body.max_pages,
-            display_name=body.display_name or normalized,
+            display_name=display_name,
             target_countries=body.target_countries,
             user_id=uid,
+            gsc_site_url=body.gsc_site_url,
         )
-        result["domain"] = _enrich_domain(result["domain"])
-        background_tasks.add_task(run_onboard_audits, result["domain_id"], body.auto_serp)
-        if body.auto_serp:
-            audit_msg = "SERP tracking and PageSpeed audits running in background"
-        else:
-            audit_msg = "PageSpeed audits running in background (SERP skipped to save credits)"
-        result["audits"] = {"status": "queued", "auto_serp": body.auto_serp, "message": audit_msg}
-        return {"success": True, "data": result}
+        domain_id = domain_row["id"]
+
+        onboarding = _queue_onboarding(
+            background_tasks,
+            domain_id=domain_id,
+            domain=normalized,
+            max_pages=body.max_pages,
+            user_id=uid,
+            auto_serp=body.auto_serp,
+            display_name=display_name,
+            target_countries=body.target_countries,
+            sync_gsc=bool(body.gsc_site_url),
+        )
+
+        return {
+            "success": True,
+            "data": {
+                "domain": _enrich_domain(domain_row),
+                "domain_id": domain_id,
+                "onboarding": onboarding,
+            },
+        }
     except HTTPException:
         raise
-    except httpx.HTTPError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=_error_detail(f"Failed to crawl domain: {exc}", "crawl_error"),
-        ) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=_error_detail(str(exc), "config_error")) from exc
     except Exception as exc:
@@ -213,28 +276,51 @@ async def refresh_domain(
     background_tasks: BackgroundTasks,
     user: dict = Depends(require_user),
 ) -> dict[str, Any]:
-    """Re-crawl sitemap, refresh pages, and run background audits."""
+    """Re-crawl sitemap, refresh pages, and run audits in the background."""
     try:
         supabase = get_supabase()
         uid = user_id_from(user)
         row = get_owned_domain(supabase, domain_id, uid)
 
-        result = await onboard_domain(row["domain"], max_pages=body.max_pages, user_id=uid)
-        result["domain"] = _enrich_domain(result["domain"])
-        background_tasks.add_task(run_onboard_audits, result["domain_id"], body.auto_serp)
-        if body.auto_serp:
-            audit_msg = "SERP tracking and PageSpeed audits running in background"
-        else:
-            audit_msg = "PageSpeed audits running in background (SERP skipped to save credits)"
-        result["audits"] = {"status": "queued", "auto_serp": body.auto_serp, "message": audit_msg}
-        return {"success": True, "data": result}
+        supabase.table("domains").update(
+            {
+                "status": "syncing",
+                "page_count": 0,
+                "sitemap_count": 0,
+            }
+        ).eq("id", domain_id).execute()
+
+        refreshed = (
+            supabase.table("domains")
+            .select("*")
+            .eq("id", domain_id)
+            .maybe_single()
+            .execute()
+        )
+        domain_row = first_row(refreshed) or row
+
+        onboarding = _queue_onboarding(
+            background_tasks,
+            domain_id=domain_id,
+            domain=row["domain"],
+            max_pages=body.max_pages,
+            user_id=uid,
+            auto_serp=body.auto_serp,
+            display_name=row.get("display_name"),
+            target_countries=row.get("target_countries") or [],
+            sync_gsc=bool(row.get("gsc_site_url")),
+        )
+
+        return {
+            "success": True,
+            "data": {
+                "domain": _enrich_domain(domain_row),
+                "domain_id": domain_id,
+                "onboarding": onboarding,
+            },
+        }
     except HTTPException:
         raise
-    except httpx.HTTPError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=_error_detail(f"Failed to refresh domain: {exc}", "crawl_error"),
-        ) from exc
     except Exception as exc:
         message, code = format_db_error(exc)
         raise HTTPException(status_code=500, detail=_error_detail(message, code)) from exc

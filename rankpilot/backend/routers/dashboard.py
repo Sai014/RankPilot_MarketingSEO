@@ -1,13 +1,14 @@
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from db.domain_auth import get_owned_domain, get_owned_page, user_id_from
 from db.errors import format_db_error
 from db.supabase_client import get_supabase
 from db.supabase_helpers import all_rows, first_row
 from middleware.auth import require_user
+from services.gsc_sync import should_sync_gsc, sync_domain_gsc_metrics
 from services.page_utils import keyword_from_path, resolve_page_countries
 
 logger = logging.getLogger(__name__)
@@ -113,11 +114,19 @@ def _top_ranked(rows: list[dict], limit: int = 6) -> list[dict[str, Any]]:
 
 
 @router.get("/{domain_id}")
-async def domain_dashboard(domain_id: str, user: dict = Depends(require_user)) -> dict[str, Any]:
+async def domain_dashboard(
+    domain_id: str,
+    background_tasks: BackgroundTasks,
+    user: dict = Depends(require_user),
+) -> dict[str, Any]:
     """Per-page dashboard: KPIs, charts, keyword rankings."""
     try:
         supabase = get_supabase()
-        domain_row = get_owned_domain(supabase, domain_id, user_id_from(user))
+        uid = user_id_from(user)
+        domain_row = get_owned_domain(supabase, domain_id, uid)
+
+        if should_sync_gsc(domain_row):
+            background_tasks.add_task(sync_domain_gsc_metrics, domain_id, uid)
 
         pages = all_rows(
             supabase.table("pages")
@@ -235,7 +244,10 @@ async def domain_dashboard(domain_id: str, user: dict = Depends(require_user)) -
         return {
             "success": True,
             "data": {
-                "domain": domain_row,
+                "domain": {
+                    **domain_row,
+                    "gsc_linked": bool(domain_row.get("gsc_site_url")),
+                },
                 "pages": rows,
                 "summary": summary,
                 "charts": charts,

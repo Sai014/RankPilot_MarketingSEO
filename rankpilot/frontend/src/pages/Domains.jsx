@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '../api/client';
 import ConfirmModal from '../components/ConfirmModal';
 import DomainModal, { GlobeIcon } from '../components/DomainModal';
+import GoogleConnectButton from '../components/GoogleConnectButton';
 import { useDomains } from '../components/DomainSelector';
 import { domainUrl, formatDate } from '../lib/domains';
 
@@ -80,6 +81,18 @@ function DomainCard({ item, onEdit, onRefresh, onDelete, refreshing, deleting })
               <>
                 <span className="text-slate-700">·</span>
                 <span className="text-amber-400 font-medium">Syncing…</span>
+              </>
+            )}
+            {item.status === 'error' && (
+              <>
+                <span className="text-slate-700">·</span>
+                <span className="text-red-400 font-medium">Onboarding failed</span>
+              </>
+            )}
+            {item.gsc_linked && (
+              <>
+                <span className="text-slate-700">·</span>
+                <span className="text-green-400 font-medium">GSC linked</span>
               </>
             )}
           </div>
@@ -174,15 +187,23 @@ function Domains() {
           display_name: form.display_name,
           target_countries: form.target_countries,
         });
+        setModalOpen(false);
       } else {
-        await api.createDomain({
+        const res = await api.createDomain({
           domain: form.domain,
           display_name: form.display_name,
           target_countries: form.target_countries,
           auto_serp: form.auto_serp ?? false,
+          gsc_site_url: form.gsc_site_url || undefined,
+        });
+        setModalOpen(false);
+        setNotice({
+          type: 'success',
+          message:
+            res.data?.onboarding?.message ||
+            `${form.display_name || form.domain}: onboarding started in the background.`,
         });
       }
-      setModalOpen(false);
       await reload();
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : 'Something went wrong');
@@ -210,8 +231,8 @@ function Domains() {
       setNotice({
         type: 'success',
         message: autoSerp
-          ? `${item.display_name || item.domain}: crawl started. SERP and PageSpeed audits running in the background.`
-          : `${item.display_name || item.domain}: crawl started. PageSpeed audits running (SERP skipped).`,
+          ? `${item.display_name || item.domain}: sitemap crawl, SERP, and PageSpeed audits running in the background.`
+          : `${item.display_name || item.domain}: sitemap crawl and PageSpeed audits running in the background (SERP skipped).`,
       });
       await reload();
     } catch (err) {
@@ -245,14 +266,17 @@ function Domains() {
               Manage your tracked websites and their default settings
             </p>
           </div>
-          <button
-            type="button"
-            onClick={openAdd}
-            className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-brand-600 hover:bg-brand-500 text-white text-sm font-medium rounded-lg transition-colors shrink-0"
-          >
-            <span className="text-lg leading-none">+</span>
-            Add Domain
-          </button>
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-end gap-3 shrink-0">
+            <GoogleConnectButton />
+            <button
+              type="button"
+              onClick={openAdd}
+              className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-brand-600 hover:bg-brand-500 text-white text-sm font-medium rounded-lg transition-colors"
+            >
+              <span className="text-lg leading-none">+</span>
+              Add Domain
+            </button>
+          </div>
         </header>
 
         {(error || actionError) && !modalOpen && (
@@ -346,6 +370,7 @@ function Domains() {
         }
         confirmLabel="Refresh"
         cancelLabel="Cancel"
+        submittingLabel="Refreshing…"
         icon={<RefreshIcon spinning={!!refreshingId} />}
       >
         <label className="flex items-start gap-3 cursor-pointer">

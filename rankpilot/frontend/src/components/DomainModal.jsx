@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { api, ApiError } from '../api/client';
+import GoogleConnectButton, { GoogleIcon } from './GoogleConnectButton';
 import { TARGET_COUNTRIES } from '../lib/domains';
 
 function GlobeIcon({ className = 'w-4 h-4' }) {
@@ -75,11 +77,22 @@ function CountryMultiSelect({ value, onChange }) {
   );
 }
 
+function gscSiteLabel(siteUrl) {
+  if (siteUrl.startsWith('sc-domain:')) return siteUrl.replace('sc-domain:', '');
+  return siteUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
+}
+
 export default function DomainModal({ open, onClose, onSubmit, submitting, initial, mode = 'add' }) {
+  const [addMode, setAddMode] = useState('manual');
   const [displayName, setDisplayName] = useState('');
   const [domain, setDomain] = useState('');
   const [countries, setCountries] = useState([]);
   const [autoSerp, setAutoSerp] = useState(false);
+  const [googleConnected, setGoogleConnected] = useState(false);
+  const [gscSites, setGscSites] = useState([]);
+  const [gscLoading, setGscLoading] = useState(false);
+  const [gscError, setGscError] = useState(null);
+  const [selectedGscSite, setSelectedGscSite] = useState('');
 
   useEffect(() => {
     if (open) {
@@ -87,13 +100,47 @@ export default function DomainModal({ open, onClose, onSubmit, submitting, initi
       setDomain(initial?.domain || '');
       setCountries(initial?.target_countries || []);
       setAutoSerp(false);
+      setAddMode('manual');
+      setSelectedGscSite('');
+      setGscError(null);
     }
   }, [open, initial]);
+
+  useEffect(() => {
+    if (!open || mode !== 'add' || addMode !== 'google' || !googleConnected) return;
+    setGscLoading(true);
+    setGscError(null);
+    api
+      .listGscProperties()
+      .then((res) => setGscSites(res.data?.sites || []))
+      .catch((err) => {
+        setGscError(err instanceof ApiError ? err.message : 'Failed to load Search Console properties');
+        setGscSites([]);
+      })
+      .finally(() => setGscLoading(false));
+  }, [open, mode, addMode, googleConnected]);
+
+  useEffect(() => {
+    if (selectedGscSite && !displayName) {
+      setDisplayName(gscSiteLabel(selectedGscSite));
+    }
+  }, [selectedGscSite, displayName]);
 
   if (!open) return null;
 
   async function handleSubmit(e) {
     e.preventDefault();
+    if (mode === 'add' && addMode === 'google') {
+      if (!selectedGscSite) return;
+      await onSubmit({
+        display_name: displayName.trim() || gscSiteLabel(selectedGscSite),
+        domain: gscSiteLabel(selectedGscSite),
+        target_countries: countries,
+        auto_serp: autoSerp,
+        gsc_site_url: selectedGscSite,
+      });
+      return;
+    }
     await onSubmit({
       display_name: displayName.trim(),
       domain: domain.trim(),
@@ -102,10 +149,13 @@ export default function DomainModal({ open, onClose, onSubmit, submitting, initi
     });
   }
 
+  const showManualFields = mode === 'edit' || addMode === 'manual';
+  const showGoogleName = mode === 'add' && addMode === 'google' && selectedGscSite;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-xl shadow-xl">
+      <div className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-xl shadow-xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-start justify-between p-6 pb-4">
           <div>
             <h2 className="text-xl font-semibold text-white">
@@ -114,7 +164,7 @@ export default function DomainModal({ open, onClose, onSubmit, submitting, initi
             <p className="text-sm text-slate-400 mt-1">
               {mode === 'edit'
                 ? 'Update display name and default target countries.'
-                : 'Add a website to track. We auto-detect pages from the sitemap.'}
+                : 'Add manually or import a verified site from Google Search Console.'}
             </p>
           </div>
           <button
@@ -128,34 +178,129 @@ export default function DomainModal({ open, onClose, onSubmit, submitting, initi
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="px-6 pb-6 space-y-5">
-          <div>
-            <label className="block text-sm font-medium text-slate-200 mb-1.5">Display Name</label>
-            <input
-              required
-              placeholder="e.g., Main Website"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              className="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-slate-200 mb-1.5">Domain</label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
-                <GlobeIcon />
-              </span>
-              <input
-                required
-                disabled={mode === 'edit'}
-                placeholder="yoursite.com"
-                value={domain}
-                onChange={(e) => setDomain(e.target.value)}
-                className="w-full pl-10 pr-3 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 disabled:opacity-60 disabled:cursor-not-allowed"
-              />
+        {mode === 'add' && (
+          <div className="px-6 pb-4">
+            <div className="flex rounded-lg border border-slate-800 p-1 bg-slate-950/50">
+              <button
+                type="button"
+                onClick={() => setAddMode('manual')}
+                className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                  addMode === 'manual' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Manual entry
+              </button>
+              <button
+                type="button"
+                onClick={() => setAddMode('google')}
+                className={`flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                  addMode === 'google' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <GoogleIcon className="w-4 h-4" />
+                From Google
+              </button>
             </div>
           </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="px-6 pb-6 space-y-5">
+          {mode === 'add' && addMode === 'google' && (
+            <div className="space-y-4">
+              <GoogleConnectButton compact onConnectionChange={(s) => setGoogleConnected(!!s?.connected)} />
+              {!googleConnected ? (
+                <p className="text-sm text-slate-500 p-4 rounded-lg border border-slate-800 bg-slate-950/50">
+                  Connect your Google account to see verified Search Console properties. Only domains added this way
+                  will show live GSC performance data on the dashboard.
+                </p>
+              ) : gscLoading ? (
+                <div className="py-8 text-center text-sm text-slate-500">Loading Search Console properties…</div>
+              ) : gscError ? (
+                <div className="p-4 rounded-lg border border-red-800 bg-red-950/40 text-red-300 text-sm">{gscError}</div>
+              ) : gscSites.length === 0 ? (
+                <div className="p-4 rounded-lg border border-slate-800 bg-slate-950/50 text-sm text-slate-400">
+                  No verified Search Console properties found for this Google account.
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-sm font-medium text-slate-200 mb-2">Search Console property</label>
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {gscSites.map((site) => (
+                      <label
+                        key={site.site_url}
+                        className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                          selectedGscSite === site.site_url
+                            ? 'border-brand-500 bg-brand-500/10'
+                            : 'border-slate-800 hover:border-slate-700'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="gsc_site"
+                          checked={selectedGscSite === site.site_url}
+                          onChange={() => setSelectedGscSite(site.site_url)}
+                          className="mt-1 text-brand-500 focus:ring-brand-500"
+                        />
+                        <span>
+                          <span className="block text-sm text-white font-medium">{gscSiteLabel(site.site_url)}</span>
+                          <span className="block text-xs text-slate-500 mt-0.5">{site.site_url}</span>
+                          {site.permission_level && (
+                            <span className="inline-block mt-1 text-[10px] uppercase tracking-wide text-slate-600">
+                              {site.permission_level}
+                            </span>
+                          )}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {showManualFields && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-slate-200 mb-1.5">Display Name</label>
+                <input
+                  required
+                  placeholder="e.g., Main Website"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-200 mb-1.5">Domain</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
+                    <GlobeIcon />
+                  </span>
+                  <input
+                    required
+                    disabled={mode === 'edit'}
+                    placeholder="yoursite.com"
+                    value={domain}
+                    onChange={(e) => setDomain(e.target.value)}
+                    className="w-full pl-10 pr-3 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                  />
+                </div>
+              </div>
+            </>
+          )}
+
+          {showGoogleName && (
+            <div>
+              <label className="block text-sm font-medium text-slate-200 mb-1.5">Display Name (optional)</label>
+              <input
+                placeholder={gscSiteLabel(selectedGscSite)}
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                className="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+              />
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-slate-200 mb-1.5">Default Target Countries</label>
@@ -174,15 +319,20 @@ export default function DomainModal({ open, onClose, onSubmit, submitting, initi
                 className="mt-0.5 rounded border-slate-600 bg-slate-900 text-brand-500 focus:ring-brand-500"
               />
               <span>
-                <span className="block text-sm font-medium text-slate-200">
-                  Auto-check SERP rankings
-                </span>
+                <span className="block text-sm font-medium text-slate-200">Auto-check SERP rankings</span>
                 <span className="block text-xs text-slate-500 mt-1">
-                  Runs one ValueSERP search per page after crawl. Uses API credits — leave off to
-                  check keywords manually in SERP Tracker.
+                  Runs one ValueSERP search per page after crawl. Uses API credits — leave off to check keywords
+                  manually in SERP Tracker.
                 </span>
               </span>
             </label>
+          )}
+
+          {addMode === 'google' && selectedGscSite && (
+            <p className="text-xs text-brand-300/80 p-3 rounded-lg bg-brand-500/10 border border-brand-500/20">
+              This domain will be linked to Google Search Console. Performance metrics (clicks, impressions, CTR,
+              position) will sync automatically on the dashboard.
+            </p>
           )}
 
           <div className="flex justify-end gap-3 pt-2">
@@ -196,7 +346,10 @@ export default function DomainModal({ open, onClose, onSubmit, submitting, initi
             </button>
             <button
               type="submit"
-              disabled={submitting}
+              disabled={
+                submitting ||
+                (mode === 'add' && addMode === 'google' && (!googleConnected || !selectedGscSite))
+              }
               className="px-4 py-2 text-sm font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-500 disabled:opacity-50 min-w-[120px]"
             >
               {submitting ? (mode === 'edit' ? 'Saving…' : 'Adding…') : mode === 'edit' ? 'Save Changes' : 'Add Domain'}

@@ -11,9 +11,10 @@ import Competitors from './pages/Competitors';
 import Profile from './pages/Profile';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
+import Landing from './pages/Landing';
 
 const navItems = [
-  { to: '/', label: 'Dashboard', end: true },
+  { to: '/dashboard', label: 'Dashboard', end: true },
   { to: '/domains', label: 'Domains' },
   { to: '/pages', label: 'Pages' },
   { to: '/audit', label: 'Site Audit' },
@@ -76,7 +77,7 @@ function AppLayout() {
 
       <main className="flex-1 overflow-y-auto bg-slate-950">
         <Routes>
-          <Route path="/" element={<Dashboard />} />
+          <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/domains" element={<Domains />} />
           <Route path="/pages" element={<PageInsights />} />
           <Route path="/pages/:pageId" element={<PageDetail />} />
@@ -84,8 +85,7 @@ function AppLayout() {
           <Route path="/serp" element={<SerpTracker />} />
           <Route path="/competitors" element={<Competitors />} />
           <Route path="/profile" element={<Profile />} />
-          <Route path="/dashboard" element={<Navigate to="/" replace />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </main>
     </div>
@@ -96,6 +96,7 @@ function App() {
   return (
     <AuthProvider>
       <Routes>
+        <Route path="/" element={<Landing />} />
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
         <Route

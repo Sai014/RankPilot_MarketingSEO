@@ -31,6 +31,7 @@ async def onboard_domain(
     display_name: str | None = None,
     target_countries: list[str] | None = None,
     user_id: str | None = None,
+    existing_domain_id: str | None = None,
 ) -> dict[str, Any]:
     """
     Crawl sitemap for domain, persist domain row + page rows.
@@ -56,30 +57,36 @@ async def onboard_domain(
     if target_countries is not None:
         domain_fields["target_countries"] = target_countries
 
-    existing_query = supabase.table("domains").select("id").eq("domain", normalized)
-    if user_id:
-        existing_query = existing_query.eq("user_id", user_id)
-    existing = existing_query.maybe_single().execute()
-    existing_row = first_row(existing)
-    if existing_row:
-        domain_id = existing_row["id"]
+    if existing_domain_id:
+        domain_id = existing_domain_id
         supabase.table("domains").update(domain_fields).eq("id", domain_id).execute()
         supabase.table("pagespeed_audits").delete().eq("domain_id", domain_id).execute()
         supabase.table("pages").delete().eq("domain_id", domain_id).execute()
     else:
-        insert_payload = {
-            "domain": normalized,
-            **domain_fields,
-            "display_name": display_name or normalized,
-            "target_countries": target_countries or [],
-        }
+        existing_query = supabase.table("domains").select("id").eq("domain", normalized)
         if user_id:
-            insert_payload["user_id"] = user_id
-        insert = supabase.table("domains").insert(insert_payload).execute()
-        rows = all_rows(insert)
-        if not rows:
-            raise RuntimeError("Failed to insert domain row")
-        domain_id = rows[0]["id"]
+            existing_query = existing_query.eq("user_id", user_id)
+        existing = existing_query.maybe_single().execute()
+        existing_row = first_row(existing)
+        if existing_row:
+            domain_id = existing_row["id"]
+            supabase.table("domains").update(domain_fields).eq("id", domain_id).execute()
+            supabase.table("pagespeed_audits").delete().eq("domain_id", domain_id).execute()
+            supabase.table("pages").delete().eq("domain_id", domain_id).execute()
+        else:
+            insert_payload = {
+                "domain": normalized,
+                **domain_fields,
+                "display_name": display_name or normalized,
+                "target_countries": target_countries or [],
+            }
+            if user_id:
+                insert_payload["user_id"] = user_id
+            insert = supabase.table("domains").insert(insert_payload).execute()
+            rows = all_rows(insert)
+            if not rows:
+                raise RuntimeError("Failed to insert domain row")
+            domain_id = rows[0]["id"]
 
     urls = crawl_result.get("urls", [])
     if urls:
@@ -97,11 +104,8 @@ async def onboard_domain(
                     "h1": detail.get("h1"),
                 }
             )
-        # Insert in batches of 100
         for i in range(0, len(rows), 100):
             supabase.table("pages").insert(rows[i : i + 100]).execute()
-
-    supabase.table("domains").update({"status": "active"}).eq("id", domain_id).execute()
 
     domain_row = (
         supabase.table("domains").select("*").eq("id", domain_id).maybe_single().execute()
@@ -118,6 +122,66 @@ async def onboard_domain(
             "total_urls": len(urls),
         },
     }
+
+
+def create_pending_domain(
+    normalized: str,
+    display_name: str,
+    target_countries: list[str],
+    user_id: str,
+    gsc_site_url: str | None = None,
+) -> dict[str, Any]:
+    """Insert a placeholder domain row while sitemap crawl runs in the background."""
+    supabase = get_supabase()
+    insert_payload: dict[str, Any] = {
+        "domain": normalized,
+        "status": "syncing",
+        "display_name": display_name,
+        "target_countries": target_countries,
+        "user_id": user_id,
+        "page_count": 0,
+        "sitemap_count": 0,
+    }
+    if gsc_site_url:
+        insert_payload["gsc_site_url"] = gsc_site_url.strip()
+        insert_payload["source"] = "gsc"
+
+    insert = supabase.table("domains").insert(insert_payload).execute()
+    rows = all_rows(insert)
+    if not rows:
+        raise RuntimeError("Failed to create domain row")
+    return rows[0]
+
+
+async def run_full_onboarding_pipeline(
+    domain_id: str,
+    domain: str,
+    max_pages: int,
+    user_id: str,
+    auto_serp: bool,
+    display_name: str | None = None,
+    target_countries: list[str] | None = None,
+    sync_gsc: bool = False,
+) -> None:
+    """Background: sitemap crawl → optional GSC sync → PageSpeed/SERP audits."""
+    from services.gsc_sync import sync_domain_gsc_metrics
+
+    supabase = get_supabase()
+    try:
+        await onboard_domain(
+            domain,
+            max_pages=max_pages,
+            display_name=display_name,
+            target_countries=target_countries,
+            user_id=user_id,
+            existing_domain_id=domain_id,
+        )
+        if sync_gsc:
+            await sync_domain_gsc_metrics(domain_id, user_id)
+        await run_onboard_audits(domain_id, auto_serp)
+    except Exception:
+        logger.exception("Onboarding pipeline failed domain_id=%s", domain_id)
+        supabase.table("domains").update({"status": "error"}).eq("id", domain_id).execute()
 
 
 async def run_onboard_audits(domain_id: str, auto_serp: bool = False) -> dict[str, Any]:

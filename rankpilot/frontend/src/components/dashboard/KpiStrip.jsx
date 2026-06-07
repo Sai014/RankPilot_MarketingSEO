@@ -30,7 +30,7 @@ const accents = {
   ranked: 'from-brand-500/20 to-indigo-600/5 border-brand-500/20 text-brand-400',
 };
 
-export default function KpiStrip({ summary }) {
+export default function KpiStrip({ summary, gscLinked = false }) {
   if (!summary) return null;
 
   const cards = [
@@ -47,7 +47,11 @@ export default function KpiStrip({ summary }) {
       key: 'clicks',
       label: 'Organic Clicks',
       value: formatCompact(summary.total_clicks),
-      sub: summary.pages_with_gsc ? 'From page metrics' : 'GSC integration coming soon',
+      sub: summary.pages_with_gsc
+        ? 'From Google Search Console'
+        : gscLinked
+          ? 'Syncing GSC data…'
+          : 'Connect via Google on Domains page',
       accent: 'clicks',
     },
     {

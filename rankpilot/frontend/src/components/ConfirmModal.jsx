@@ -6,6 +6,7 @@ export default function ConfirmModal({
   message,
   confirmLabel = 'Confirm',
   cancelLabel = 'Cancel',
+  submittingLabel = 'Please wait…',
   submitting = false,
   icon = null,
   children = null,
@@ -59,7 +60,7 @@ export default function ConfirmModal({
               disabled={submitting}
               className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-500 disabled:opacity-50 min-w-[120px]"
             >
-              {submitting ? 'Refreshing…' : confirmLabel}
+              {submitting ? submittingLabel : confirmLabel}
             </button>
           </div>
         </div>
