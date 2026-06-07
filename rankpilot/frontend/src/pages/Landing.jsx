@@ -420,17 +420,8 @@ export default function Landing() {
         />
 
         <div className="max-w-6xl mx-auto px-6 pt-16 pb-8 text-center relative z-10">
-          <div
-            className={`transition-all duration-1000 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'}`}
-          >
-            <p className="inline-flex items-center gap-2 rounded-full border border-slate-700/60 bg-slate-900/60 backdrop-blur-sm px-4 py-1.5 text-xs text-slate-400 mb-8 hover:border-brand-500/40 transition-colors duration-300">
-              <span className="w-1.5 h-1.5 rounded-full bg-brand-400 animate-pulse-glow" />
-              Powered by AI · Built for marketers
-            </p>
-          </div>
-
           <h1
-            className={`text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight max-w-4xl mx-auto leading-tight transition-all duration-1000 delay-100 ${
+            className={`text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight max-w-4xl mx-auto leading-tight transition-all duration-1000 ${
               mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
             }`}
           >
