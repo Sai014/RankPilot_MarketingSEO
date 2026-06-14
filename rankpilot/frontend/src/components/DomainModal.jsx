@@ -87,7 +87,7 @@ export default function DomainModal({ open, onClose, onSubmit, submitting, initi
   const [displayName, setDisplayName] = useState('');
   const [domain, setDomain] = useState('');
   const [countries, setCountries] = useState([]);
-  const [autoSerp, setAutoSerp] = useState(false);
+  const [autoSerp, setAutoSerp] = useState(true);
   const [googleConnected, setGoogleConnected] = useState(false);
   const [gscSites, setGscSites] = useState([]);
   const [gscLoading, setGscLoading] = useState(false);
@@ -99,7 +99,7 @@ export default function DomainModal({ open, onClose, onSubmit, submitting, initi
       setDisplayName(initial?.display_name || '');
       setDomain(initial?.domain || '');
       setCountries(initial?.target_countries || []);
-      setAutoSerp(false);
+      setAutoSerp(true);
       setAddMode('manual');
       setSelectedGscSite('');
       setGscError(null);

@@ -64,6 +64,7 @@ export const api = {
   deleteDomain: (id) => request(`/api/domains/${id}`, { method: 'DELETE' }),
   refreshDomain: (id, data = {}) =>
     request(`/api/domains/${id}/refresh`, { method: 'POST', body: JSON.stringify(data) }),
+  syncDomainSerp: (id) => request(`/api/domains/${id}/serp/sync`, { method: 'POST' }),
 
   // Google Search Console (Composio)
   getGoogleStatus: () => request('/api/integrations/google/status'),

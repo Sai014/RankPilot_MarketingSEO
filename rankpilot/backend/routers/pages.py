@@ -11,6 +11,7 @@ from db.supabase_helpers import all_rows, first_row
 from middleware.auth import require_user
 from routers.dashboard import _serp_rank_for_url
 from services.page_utils import keyword_from_path, resolve_page_countries
+from services.technical_audit_batch import build_page_health, latest_domain_audits, latest_page_audits
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +132,36 @@ async def page_dashboard(page_id: str, user: dict = Depends(require_user)) -> di
         mobile = ps_map.get("mobile")
         desktop = ps_map.get("desktop")
 
+        domain_audit_result = (
+            supabase.table("domain_audits")
+            .select("*")
+            .eq("domain_id", page_row["domain_id"])
+            .order("created_at", desc=True)
+            .execute()
+        )
+        domain_audits = latest_domain_audits(all_rows(domain_audit_result))
+        security_audit = domain_audits.get("security_headers")
+        domain_security_score = (
+            float(security_audit["score"]) if security_audit and security_audit.get("score") is not None else None
+        )
+
+        page_audit_result = (
+            supabase.table("page_audits")
+            .select("*")
+            .eq("page_id", page_id)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        onpage_rows = all_rows(page_audit_result)
+        onpage_audit = onpage_rows[0] if onpage_rows else None
+        onpage_result = (onpage_audit or {}).get("result") or {}
+        health = build_page_health(
+            pagespeed_mobile=mobile,
+            onpage_audit=onpage_audit,
+            domain_security_score=domain_security_score,
+        )
+
         serp_result = (
             supabase.table("serp_tracks")
             .select("*")
@@ -150,7 +181,14 @@ async def page_dashboard(page_id: str, user: dict = Depends(require_user)) -> di
         gsc_row = first_row(metrics_result)
 
         enriched = _enrich_page(page_row, domain_row)
-        logger.info("Page dashboard page_id=%s path=%s", page_id, page_row.get("path"))
+        logger.info(
+            "Page dashboard page_id=%s path=%s pagespeed=%s onpage_score=%s health=%s",
+            page_id,
+            page_row.get("path"),
+            "yes" if mobile or desktop else "pending",
+            onpage_audit.get("score") if onpage_audit else None,
+            health.get("health_score") if health else None,
+        )
 
         return {
             "success": True,
@@ -161,10 +199,28 @@ async def page_dashboard(page_id: str, user: dict = Depends(require_user)) -> di
                     "desktop": desktop,
                     "performance_score": (mobile or desktop or {}).get("performance_score"),
                     "seo_score": (mobile or desktop or {}).get("seo_score"),
+                    "accessibility_score": (mobile or desktop or {}).get("accessibility_score"),
+                    "best_practices_score": (mobile or desktop or {}).get("best_practices_score"),
                     "lcp": (mobile or {}).get("lcp") or (desktop or {}).get("lcp"),
                     "audited_at": (mobile or desktop or {}).get("audited_at"),
                 }
                 if mobile or desktop
+                else None,
+                "audit": {
+                    "onpage_score": onpage_audit.get("score") if onpage_audit else None,
+                    "onpage": onpage_result.get("signals"),
+                    "onpage_issues": onpage_result.get("issues") or [],
+                    "health_score": health.get("health_score") if health else None,
+                    "security_score": domain_security_score,
+                    "audited_at": onpage_audit.get("created_at") if onpage_audit else None,
+                }
+                if onpage_audit or health
+                else None,
+                "domain_audit": {
+                    "ssl": domain_audits.get("ssl"),
+                    "security_headers": domain_audits.get("security_headers"),
+                }
+                if domain_audits
                 else None,
                 "serp": serp,
                 "gsc": {

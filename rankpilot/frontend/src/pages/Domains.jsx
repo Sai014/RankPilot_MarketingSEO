@@ -84,10 +84,16 @@ function DomainCard({ item, onEdit, onRefresh, onDelete, refreshing, deleting })
                 <span className="text-amber-400 font-medium">Crawling…</span>
               </>
             )}
-            {item.status === 'error' && (
+            {item.status === 'error' && (item.page_count ?? 0) === 0 && (
               <>
                 <span className="text-slate-700">·</span>
                 <span className="text-red-400 font-medium">Onboarding failed</span>
+              </>
+            )}
+            {item.status === 'error' && (item.page_count ?? 0) > 0 && (
+              <>
+                <span className="text-slate-700">·</span>
+                <span className="text-amber-400 font-medium">Audits incomplete — click Refresh</span>
               </>
             )}
             {item.gsc_linked && (
@@ -144,7 +150,7 @@ function Domains() {
   const [deletingId, setDeletingId] = useState(null);
   const [refreshingId, setRefreshingId] = useState(null);
   const [refreshTarget, setRefreshTarget] = useState(null);
-  const [refreshAutoSerp, setRefreshAutoSerp] = useState(false);
+  const [refreshAutoSerp, setRefreshAutoSerp] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [notice, setNotice] = useState(null);
 
@@ -196,7 +202,7 @@ function Domains() {
           domain: form.domain,
           display_name: form.display_name,
           target_countries: form.target_countries,
-          auto_serp: form.auto_serp ?? false,
+          auto_serp: form.auto_serp ?? true,
           gsc_site_url: form.gsc_site_url || undefined,
         });
         setModalOpen(false);
@@ -217,7 +223,7 @@ function Domains() {
 
   function openRefresh(item) {
     setActionError(null);
-    setRefreshAutoSerp(false);
+    setRefreshAutoSerp(true);
     setRefreshTarget(item);
   }
 

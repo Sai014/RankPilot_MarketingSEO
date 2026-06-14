@@ -41,10 +41,13 @@ async def audit_pagespeed(body: PageSpeedRequest) -> dict[str, Any]:
         result = await run_pagespeed_audit(body.url, strategy=body.strategy)
         metrics = result.get("metrics", {})
         logger.info(
-            "PageSpeed complete url=%s performance=%s seo=%s",
+            "PageSpeed complete url=%s strategy=%s perf=%s seo=%s a11y=%s bp=%s",
             body.url,
+            body.strategy,
             metrics.get("performance_score"),
             metrics.get("seo_score"),
+            metrics.get("accessibility_score"),
+            metrics.get("best_practices_score"),
         )
 
         analysis = None

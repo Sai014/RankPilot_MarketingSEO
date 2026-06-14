@@ -1,10 +1,10 @@
 import logging
-import re
 from typing import Any
 from urllib.parse import urlparse
 
 from db.supabase_client import get_supabase
 from db.supabase_helpers import all_rows, first_row
+from services.domain_utils import normalize_domain, site_url_from_domain
 from services.pagespeed_batch import audit_domain_pages
 from services.serp_batch import track_domain_pages
 from services.sitemap_crawler import crawl_sitemap
@@ -12,17 +12,17 @@ from services.sitemap_crawler import crawl_sitemap
 logger = logging.getLogger(__name__)
 
 
-def normalize_domain(domain: str) -> str:
-    """Strip protocol, www, trailing slash → bare domain."""
-    domain = domain.strip().lower()
-    domain = re.sub(r"^https?://", "", domain)
-    domain = domain.split("/")[0]
-    domain = re.sub(r"^www\.", "", domain)
-    return domain
+def _safe_clear_domain_table(supabase, table: str, domain_id: str) -> None:
+    """Clear rows for a domain; ignore missing tables during migration rollout."""
+    try:
+        supabase.table(table).delete().eq("domain_id", domain_id).execute()
+    except Exception as exc:
+        logger.warning("Could not clear %s domain_id=%s: %s", table, domain_id, exc)
 
 
-def site_url_from_domain(domain: str) -> str:
-    return f"https://{normalize_domain(domain)}"
+def _clear_domain_crawl_data(supabase, domain_id: str) -> None:
+    for table in ("pagespeed_audits", "page_audits", "domain_audits", "pages"):
+        _safe_clear_domain_table(supabase, table, domain_id)
 
 
 async def onboard_domain(
@@ -60,8 +60,7 @@ async def onboard_domain(
     if existing_domain_id:
         domain_id = existing_domain_id
         supabase.table("domains").update(domain_fields).eq("id", domain_id).execute()
-        supabase.table("pagespeed_audits").delete().eq("domain_id", domain_id).execute()
-        supabase.table("pages").delete().eq("domain_id", domain_id).execute()
+        _clear_domain_crawl_data(supabase, domain_id)
     else:
         existing_query = supabase.table("domains").select("id").eq("domain", normalized)
         if user_id:
@@ -71,8 +70,7 @@ async def onboard_domain(
         if existing_row:
             domain_id = existing_row["id"]
             supabase.table("domains").update(domain_fields).eq("id", domain_id).execute()
-            supabase.table("pagespeed_audits").delete().eq("domain_id", domain_id).execute()
-            supabase.table("pages").delete().eq("domain_id", domain_id).execute()
+            _clear_domain_crawl_data(supabase, domain_id)
         else:
             insert_payload = {
                 "domain": normalized,
@@ -165,6 +163,7 @@ async def run_full_onboarding_pipeline(
 ) -> None:
     """Background: sitemap crawl → optional GSC sync → PageSpeed/SERP audits."""
     from services.gsc_sync import sync_domain_gsc_metrics
+    from services.technical_audit_batch import audit_domain_technical
 
     supabase = get_supabase()
     try:
@@ -176,18 +175,51 @@ async def run_full_onboarding_pipeline(
             user_id=user_id,
             existing_domain_id=domain_id,
         )
-        # Pages are usable as soon as the crawl finishes — don't block on PageSpeed/SERP.
-        supabase.table("domains").update({"status": "active"}).eq("id", domain_id).execute()
-        if sync_gsc:
-            await sync_domain_gsc_metrics(domain_id, user_id)
-        await run_onboard_audits(domain_id, auto_serp)
     except Exception:
-        logger.exception("Onboarding pipeline failed domain_id=%s", domain_id)
+        logger.exception("Onboarding crawl failed domain_id=%s", domain_id)
         supabase.table("domains").update({"status": "error"}).eq("id", domain_id).execute()
+        return
+
+    # Crawl succeeded — pages are usable even if background audits fail.
+    supabase.table("domains").update({"status": "active"}).eq("id", domain_id).execute()
+    logger.info("Onboarding pipeline: crawl complete domain_id=%s domain=%s", domain_id, domain)
+
+    if auto_serp:
+        try:
+            logger.info("Onboarding pipeline: starting SERP domain_id=%s", domain_id)
+            supabase.table("serp_tracks").delete().eq("domain_id", domain_id).execute()
+            serp_summary = await track_domain_pages(domain_id)
+            logger.info("Onboarding pipeline: SERP complete domain_id=%s %s", domain_id, serp_summary)
+        except Exception:
+            logger.exception("SERP batch failed domain_id=%s", domain_id)
+
+    if sync_gsc:
+        try:
+            logger.info("Onboarding pipeline: starting GSC sync domain_id=%s", domain_id)
+            gsc_summary = await sync_domain_gsc_metrics(domain_id, user_id)
+            logger.info("Onboarding pipeline: GSC sync complete domain_id=%s %s", domain_id, gsc_summary)
+        except Exception:
+            logger.exception("GSC sync failed domain_id=%s", domain_id)
+
+    try:
+        logger.info("Onboarding pipeline: starting technical audit domain_id=%s", domain_id)
+        technical_summary = await audit_domain_technical(domain_id, domain)
+        logger.info("Onboarding pipeline: technical audit complete domain_id=%s %s", domain_id, technical_summary)
+    except Exception:
+        logger.exception("Technical audit failed domain_id=%s", domain_id)
+
+    try:
+        logger.info("Onboarding pipeline: starting PageSpeed batch domain_id=%s", domain_id)
+        pagespeed_summary = await audit_domain_pages(domain_id, manage_status=False)
+        logger.info("Onboarding pipeline: PageSpeed batch complete domain_id=%s %s", domain_id, pagespeed_summary)
+    except Exception:
+        logger.exception("PageSpeed batch failed domain_id=%s", domain_id)
 
 
-async def run_onboard_audits(domain_id: str, auto_serp: bool = False) -> dict[str, Any]:
-    """Background step: optional SERP tracking + PageSpeed for all pages after crawl."""
+async def run_onboard_audits(domain_id: str, auto_serp: bool = True) -> dict[str, Any]:
+    """Background step: SERP tracking first, then PageSpeed for all pages after crawl."""
+    from services.technical_audit_batch import audit_domain_technical
+
     supabase = get_supabase()
     serp: dict[str, Any]
     if auto_serp:
@@ -196,5 +228,16 @@ async def run_onboard_audits(domain_id: str, auto_serp: bool = False) -> dict[st
     else:
         serp = {"domain_id": domain_id, "skipped": True, "reason": "auto_serp disabled"}
         logger.info("SERP batch skipped domain_id=%s (auto_serp=false)", domain_id)
+    domain_row = (
+        supabase.table("domains").select("domain").eq("id", domain_id).maybe_single().execute()
+    )
+    domain_name = (first_row(domain_row) or {}).get("domain") or ""
+    technical = await audit_domain_technical(domain_id, domain_name) if domain_name else None
     pagespeed = await audit_domain_pages(domain_id, manage_status=False)
-    return {"domain_id": domain_id, "auto_serp": auto_serp, "serp": serp, "pagespeed": pagespeed}
+    return {
+        "domain_id": domain_id,
+        "auto_serp": auto_serp,
+        "serp": serp,
+        "technical": technical,
+        "pagespeed": pagespeed,
+    }

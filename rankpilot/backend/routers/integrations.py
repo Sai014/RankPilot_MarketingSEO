@@ -18,7 +18,7 @@ from services.composio_service import (
     get_active_gsc_connection,
     list_gsc_sites,
 )
-from services.gsc_sync import sync_domain_gsc_metrics
+from services.background_jobs import run_gsc_sync_job
 
 logger = logging.getLogger(__name__)
 
@@ -174,7 +174,7 @@ async def sync_gsc(
                 status_code=400,
                 detail=_error_detail("Domain is not linked to Google Search Console", "not_gsc_linked"),
             )
-        background_tasks.add_task(sync_domain_gsc_metrics, domain_id, uid)
+        background_tasks.add_task(run_gsc_sync_job, domain_id, uid)
         return {
             "success": True,
             "data": {"domain_id": domain_id, "status": "queued", "message": "GSC sync started"},

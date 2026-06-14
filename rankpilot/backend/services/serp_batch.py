@@ -11,11 +11,37 @@ from db.supabase_client import get_supabase
 from db.supabase_helpers import all_rows, first_row
 from services.page_utils import format_countries, keyword_from_path
 from services.serp_helpers import find_domain_rank
+from services.serp_locale import locale_kwargs
 from services.serp_tracker import track_serp
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_DELAY_SEC = float(os.getenv("SERP_ONBOARD_DELAY_SEC", "1"))
+
+
+def _load_domain_pages(supabase, domain_id: str) -> list[dict]:
+    """Load pages; omit target_countries if migration v4 was not applied yet."""
+    try:
+        return all_rows(
+            supabase.table("pages")
+            .select("id, url, path, target_countries")
+            .eq("domain_id", domain_id)
+            .order("path")
+            .execute()
+        )
+    except Exception as exc:
+        if "target_countries" not in str(exc):
+            raise
+        logger.warning(
+            "pages.target_countries missing — run schema_v4_pages.sql; using domain country only"
+        )
+        return all_rows(
+            supabase.table("pages")
+            .select("id, url, path")
+            .eq("domain_id", domain_id)
+            .order("path")
+            .execute()
+        )
 
 
 def _default_location(domain_row: dict[str, Any]) -> str:
@@ -34,7 +60,12 @@ async def _track_and_persist(
     page_id: str,
 ) -> bool:
     try:
-        result = await track_serp(keyword=keyword, location=location, num=100)
+        result = await track_serp(
+            keyword=keyword,
+            location=location,
+            num=100,
+            **locale_kwargs(location),
+        )
         domain_rank = find_domain_rank(result["organic_results"], target_domain)
         result["target_domain"] = target_domain
         result["target_rank"] = domain_rank
@@ -56,6 +87,15 @@ async def _track_and_persist(
         )
         if not persisted:
             logger.warning("SERP not saved keyword=%r page_id=%s: %s", keyword, page_id, error)
+        else:
+            logger.info(
+                "SERP saved keyword=%r location=%r page_id=%s rank=%s organic=%d",
+                keyword,
+                location,
+                page_id,
+                domain_rank,
+                len(result.get("organic_results") or []),
+            )
         return persisted
     except httpx.HTTPStatusError as exc:
         logger.error(
@@ -86,13 +126,7 @@ async def track_domain_pages(domain_id: str, *, delay_sec: float = DEFAULT_DELAY
     target_domain = domain_row["domain"]
     location = _default_location(domain_row)
 
-    pages = all_rows(
-        supabase.table("pages")
-        .select("id, url, path, target_countries")
-        .eq("domain_id", domain_id)
-        .order("path")
-        .execute()
-    )
+    pages = _load_domain_pages(supabase, domain_id)
 
     if not pages:
         logger.info("SERP batch skipped — no pages domain_id=%s", domain_id)

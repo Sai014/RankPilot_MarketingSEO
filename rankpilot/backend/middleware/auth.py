@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import Header, HTTPException
 
 from db.supabase_client import get_current_user
@@ -19,4 +21,4 @@ async def require_user(authorization: str = Header(...)) -> dict:
     if not token:
         raise _unauthorized("Missing bearer token")
 
-    return get_current_user(token)
+    return await asyncio.to_thread(get_current_user, token)

@@ -41,6 +41,17 @@ async def _audit_and_persist(
         )
         if not persisted:
             logger.warning("PageSpeed not saved url=%s strategy=%s: %s", url, strategy, error)
+        else:
+            metrics = result.get("metrics", {})
+            logger.info(
+                "PageSpeed saved url=%s strategy=%s perf=%s seo=%s a11y=%s bp=%s",
+                url,
+                strategy,
+                metrics.get("performance_score"),
+                metrics.get("seo_score"),
+                metrics.get("accessibility_score"),
+                metrics.get("best_practices_score"),
+            )
         return persisted
     except httpx.HTTPStatusError as exc:
         logger.error(

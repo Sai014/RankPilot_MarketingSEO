@@ -1,6 +1,8 @@
+import { Link } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
 import { formatCompact, rankBadgeClass, scoreColor, scorePct } from '../../lib/dashboard';
 import Pagination from '../Pagination';
+import { HealthBadge } from './DomainAuditStrip';
 
 const DEFAULT_PAGE_SIZE = 25;
 
@@ -111,6 +113,10 @@ export default function KeywordRankingsTable({ pages = [] }) {
         case 'clicks':
           av = a.gsc?.clicks ?? -1;
           bv = b.gsc?.clicks ?? -1;
+          break;
+        case 'health':
+          av = a.audit?.health_score ?? -1;
+          bv = b.audit?.health_score ?? -1;
           break;
         case 'position':
         default:
@@ -224,6 +230,13 @@ export default function KeywordRankingsTable({ pages = [] }) {
               <th className={thClass}>Leads</th>
               <th className={thClass}>CTR</th>
               <th className={thClass}>PageSpeed</th>
+              <th className={thClass}>
+                <button type="button" onClick={() => toggleSort('health')} className="hover:text-slate-300">
+                  Health
+                  <SortIcon active={sortKey === 'health'} dir={sortDir} />
+                </button>
+              </th>
+              <th className={thClass}>View</th>
             </tr>
           </thead>
           <tbody>
@@ -255,8 +268,14 @@ export default function KeywordRankingsTable({ pages = [] }) {
                     >
                       {row.serp.rank}
                     </span>
+                  ) : row.serp ? (
+                    <span className="text-xs text-slate-500" title="Checked — not in top 100">
+                      Not ranked
+                    </span>
                   ) : (
-                    <span className="text-slate-600">—</span>
+                    <span className="text-slate-600" title="SERP check pending or not run">
+                      —
+                    </span>
                   )}
                 </td>
                 <td className="py-3 px-3 text-slate-600">—</td>
@@ -273,6 +292,18 @@ export default function KeywordRankingsTable({ pages = [] }) {
                     <PageSpeedBadge score={row.pagespeed?.mobile?.performance_score} label="Mobile" icon={phoneIcon} />
                     <PageSpeedBadge score={row.pagespeed?.desktop?.performance_score} label="Desktop" icon={desktopIcon} />
                   </div>
+                </td>
+                <td className="py-3 px-3">
+                  <HealthBadge score={row.audit?.health_score} />
+                </td>
+                <td className="py-3 px-3">
+                  <Link
+                    to={`/pages/${row.page_id}`}
+                    state={{ from: '/dashboard' }}
+                    className="inline-flex items-center gap-1 text-brand-400 hover:text-brand-300 hover:underline text-sm font-medium whitespace-nowrap"
+                  >
+                    View
+                  </Link>
                 </td>
               </tr>
             ))}

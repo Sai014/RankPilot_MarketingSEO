@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '../api/client';
+import DomainAuditStrip from '../components/dashboard/DomainAuditStrip';
 import CoveragePanel from '../components/dashboard/CoveragePanel';
 import KeywordRankingsTable from '../components/dashboard/KeywordRankingsTable';
 import KpiStrip from '../components/dashboard/KpiStrip';
@@ -34,14 +35,21 @@ function Dashboard() {
   }, [domainId]);
 
   useEffect(() => {
-    if (!domainId || selectedDomain?.status !== 'syncing' || (selectedDomain?.page_count ?? 0) > 0) {
-      return undefined;
-    }
+    if (!domainId) return undefined;
+
+    const crawlInProgress =
+      selectedDomain?.status === 'syncing' && (selectedDomain?.page_count ?? 0) === 0;
+    const serpPending =
+      data?.summary?.total_pages > 0 &&
+      (data?.summary?.pages_with_serp ?? 0) < (data?.summary?.total_pages ?? 0);
+
+    if (!crawlInProgress && !serpPending) return undefined;
+
     const interval = setInterval(() => {
       api.getDashboard(domainId).then((res) => setData(res.data)).catch(() => {});
     }, 20000);
     return () => clearInterval(interval);
-  }, [domainId, selectedDomain?.status]);
+  }, [domainId, selectedDomain?.status, selectedDomain?.page_count, data?.summary?.total_pages, data?.summary?.pages_with_serp]);
 
   return (
     <div className="min-h-full">
@@ -94,11 +102,13 @@ function Dashboard() {
           <>
             <KpiStrip summary={data?.summary} gscLinked={!!data?.domain?.gsc_linked} />
 
+            <DomainAuditStrip domainAudit={data?.domain_audit} summary={data?.summary} />
+
             {selectedDomain?.status === 'syncing' && (selectedDomain?.page_count ?? 0) === 0 && (
               <div className="rounded-xl border border-brand-500/20 bg-brand-950/20 px-5 py-4">
                 <p className="text-sm font-medium text-brand-200">Crawl in progress</p>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Discovering pages from your sitemap. PageSpeed scores will populate in the background once crawling finishes.
+                  Discovering pages from your sitemap. Technical audits and PageSpeed scores will populate in the background once crawling finishes.
                 </p>
               </div>
             )}
@@ -117,12 +127,12 @@ function Dashboard() {
             </div>
 
             {/* Quick insight strip when no SERP data */}
-            {data?.summary?.pages_with_serp === 0 && (
+            {data?.summary?.pages_with_serp === 0 && (data?.summary?.total_pages ?? 0) > 0 && (
               <div className="rounded-xl border border-brand-500/20 bg-brand-950/20 px-5 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div>
-                  <p className="text-sm font-medium text-brand-200">No SERP data yet</p>
+                  <p className="text-sm font-medium text-brand-200">Fetching SERP positions…</p>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    Track keywords in SERP Tracker to populate positions and rank charts.
+                    Rankings are checked automatically after onboarding. This table will update as results come in.
                   </p>
                 </div>
                 <Link

@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 from db.supabase_client import get_supabase
 from db.supabase_helpers import all_rows, first_row
 from services.composio_service import execute_gsc_tool, get_active_gsc_connection
-from services.domain_onboarding import normalize_domain
+from services.domain_utils import normalize_domain
 
 logger = logging.getLogger(__name__)
 

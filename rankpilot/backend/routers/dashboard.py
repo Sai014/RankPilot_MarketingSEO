@@ -8,8 +8,10 @@ from db.errors import format_db_error
 from db.supabase_client import get_supabase
 from db.supabase_helpers import all_rows, first_row
 from middleware.auth import require_user
-from services.gsc_sync import should_sync_gsc, sync_domain_gsc_metrics
+from services.background_jobs import run_gsc_sync_job
+from services.gsc_sync import should_sync_gsc
 from services.page_utils import keyword_from_path, resolve_page_countries
+from services.technical_audit_batch import build_page_health, latest_domain_audits, latest_page_audits
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +38,8 @@ def _pagespeed_by_url(audits: list[dict]) -> dict[str, dict]:
             bucket[strategy] = {
                 "performance_score": metrics.get("performance_score"),
                 "seo_score": metrics.get("seo_score"),
+                "accessibility_score": metrics.get("accessibility_score"),
+                "best_practices_score": metrics.get("best_practices_score"),
                 "lcp": metrics.get("largest_contentful_paint"),
                 "audited_at": audit.get("created_at"),
             }
@@ -126,7 +130,7 @@ async def domain_dashboard(
         domain_row = get_owned_domain(supabase, domain_id, uid)
 
         if should_sync_gsc(domain_row):
-            background_tasks.add_task(sync_domain_gsc_metrics, domain_id, uid)
+            background_tasks.add_task(run_gsc_sync_job, domain_id, uid)
 
         pages = all_rows(
             supabase.table("pages")
@@ -144,6 +148,29 @@ async def domain_dashboard(
             .execute()
         )
         pagespeed_map = _pagespeed_by_url(all_rows(ps_result))
+
+        domain_audit_result = (
+            supabase.table("domain_audits")
+            .select("*")
+            .eq("domain_id", domain_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        domain_audits = latest_domain_audits(all_rows(domain_audit_result))
+        ssl_audit = domain_audits.get("ssl")
+        security_audit = domain_audits.get("security_headers")
+        domain_security_score = (
+            float(security_audit["score"]) if security_audit and security_audit.get("score") is not None else None
+        )
+
+        page_audit_result = (
+            supabase.table("page_audits")
+            .select("*")
+            .eq("domain_id", domain_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        page_audits_map = latest_page_audits(all_rows(page_audit_result))
 
         serp_result = (
             supabase.table("serp_tracks")
@@ -170,6 +197,13 @@ async def domain_dashboard(
             desktop = ps.get("desktop")
             serp = _serp_for_page(serp_tracks, page["id"], url)
             gsc = metrics_by_page.get(page["id"])
+            onpage_audit = page_audits_map.get(page["id"])
+            onpage_result = (onpage_audit or {}).get("result") or {}
+            health = build_page_health(
+                pagespeed_mobile=mobile,
+                onpage_audit=onpage_audit,
+                domain_security_score=domain_security_score,
+            )
 
             rows.append(
                 {
@@ -184,10 +218,19 @@ async def domain_dashboard(
                         "desktop": desktop,
                         "performance_score": (mobile or desktop or {}).get("performance_score"),
                         "seo_score": (mobile or desktop or {}).get("seo_score"),
+                        "accessibility_score": (mobile or desktop or {}).get("accessibility_score"),
                         "lcp": (mobile or {}).get("lcp") or (desktop or {}).get("lcp"),
                         "audited_at": (mobile or desktop or {}).get("audited_at"),
                     }
                     if mobile or desktop
+                    else None,
+                    "audit": {
+                        "onpage_score": onpage_audit.get("score") if onpage_audit else None,
+                        "onpage_issues": onpage_result.get("issues") or [],
+                        "health_score": health.get("health_score") if health else None,
+                        "audited_at": onpage_audit.get("created_at") if onpage_audit else None,
+                    }
+                    if onpage_audit or health
                     else None,
                     "serp": serp,
                     "gsc": {
@@ -206,6 +249,7 @@ async def domain_dashboard(
             )
 
         ranks = [r["serp"]["rank"] for r in rows if r.get("serp") and r["serp"].get("rank")]
+        health_scores = [r["audit"]["health_score"] for r in rows if r.get("audit") and r["audit"].get("health_score") is not None]
         total_clicks = sum((r.get("gsc") or {}).get("clicks") or 0 for r in rows)
         total_impressions = sum((r.get("gsc") or {}).get("impressions") or 0 for r in rows)
         total_leads = sum((r.get("gsc") or {}).get("leads") or 0 for r in rows)
@@ -215,6 +259,10 @@ async def domain_dashboard(
             "pages_with_pagespeed": sum(1 for r in rows if r["pagespeed"]),
             "pages_with_serp": sum(1 for r in rows if r["serp"]),
             "pages_with_gsc": sum(1 for r in rows if r["gsc"]),
+            "pages_with_audit": sum(1 for r in rows if r.get("audit")),
+            "avg_health_score": round(sum(health_scores) / len(health_scores), 1) if health_scores else None,
+            "ssl_score": float(ssl_audit["score"]) if ssl_audit and ssl_audit.get("score") is not None else None,
+            "security_score": domain_security_score,
             "avg_position": round(sum(ranks) / len(ranks), 2) if ranks else None,
             "ranked_pages": len(ranks),
             "top_10_pages": sum(1 for r in ranks if r <= 10),
@@ -229,9 +277,30 @@ async def domain_dashboard(
             "coverage": [
                 {"label": "SERP data", "value": summary["pages_with_serp"], "total": summary["total_pages"]},
                 {"label": "PageSpeed", "value": summary["pages_with_pagespeed"], "total": summary["total_pages"]},
+                {"label": "Technical audit", "value": summary["pages_with_audit"], "total": summary["total_pages"]},
                 {"label": "GSC data", "value": summary["pages_with_gsc"], "total": summary["total_pages"]},
             ],
         }
+
+        domain_audit_summary = None
+        if ssl_audit or security_audit:
+            ssl_result = (ssl_audit or {}).get("result") or {}
+            headers_result = (security_audit or {}).get("result") or {}
+            domain_audit_summary = {
+                "ssl": {
+                    "score": ssl_audit.get("score") if ssl_audit else None,
+                    "tls_version": ssl_result.get("tls_version"),
+                    "days_until_expiry": ssl_result.get("days_until_expiry"),
+                    "issues": ssl_result.get("issues") or [],
+                    "audited_at": ssl_audit.get("created_at") if ssl_audit else None,
+                },
+                "security_headers": {
+                    "score": security_audit.get("score") if security_audit else None,
+                    "missing": headers_result.get("missing") or [],
+                    "checks": headers_result.get("checks") or [],
+                    "audited_at": security_audit.get("created_at") if security_audit else None,
+                },
+            }
 
         logger.info(
             "Dashboard domain_id=%s pages=%d ranked=%d avg_pos=%s",
@@ -251,6 +320,7 @@ async def domain_dashboard(
                 "pages": rows,
                 "summary": summary,
                 "charts": charts,
+                "domain_audit": domain_audit_summary,
             },
         }
     except HTTPException:

@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import { api, ApiError } from '../api/client';
 import PageSpeedPanel from '../components/PageSpeedPanel';
+import TechnicalAuditPanel from '../components/TechnicalAuditPanel';
 import { formatCompact, rankBadgeClass } from '../lib/dashboard';
 
 function PageDetail() {
   const { pageId } = useParams();
+  const location = useLocation();
+  const backPath = location.state?.from || '/dashboard';
+  const backLabel = backPath === '/dashboard' ? 'Dashboard' : 'Pages';
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -36,13 +40,13 @@ function PageDetail() {
     <div className="px-4 sm:px-6 lg:px-8 py-5 sm:py-8 max-w-7xl mx-auto">
       <div className="mb-6 sm:mb-8">
         <Link
-          to="/pages"
+          to={backPath}
           className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-white mb-4"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
-          Back to Pages
+          Back to {backLabel}
         </Link>
 
         {loading ? (
@@ -100,6 +104,12 @@ function PageDetail() {
             url={page.url}
             pagespeed={data.pagespeed}
             onUpdated={loadDashboard}
+          />
+
+          <TechnicalAuditPanel
+            audit={data.audit}
+            domainAudit={data.domain_audit}
+            pagespeed={data.pagespeed}
           />
 
           {(serp || gsc) && (

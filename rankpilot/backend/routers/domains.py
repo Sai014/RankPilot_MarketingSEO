@@ -8,12 +8,9 @@ from db.errors import format_db_error
 from db.supabase_client import get_supabase
 from db.supabase_helpers import all_rows, first_row
 from middleware.auth import require_user
-from services.domain_onboarding import (
-    create_pending_domain,
-    normalize_domain,
-    run_full_onboarding_pipeline,
-    site_url_from_domain,
-)
+from services.background_jobs import run_gsc_sync_job, run_onboarding_job, run_serp_sync_job
+from services.domain_onboarding import create_pending_domain
+from services.domain_utils import normalize_domain, site_url_from_domain
 from services.gsc_sync import gsc_site_to_domain
 
 router = APIRouter(prefix="/api/domains", tags=["domains"])
@@ -25,7 +22,7 @@ class DomainCreate(BaseModel):
     target_countries: list[str] = Field(default_factory=list)
     max_pages: int = Field(default=200, ge=1, le=500)
     auto_serp: bool = Field(
-        default=False,
+        default=True,
         description="If true, run ValueSERP checks for every page after crawl (uses API credits)",
     )
     gsc_site_url: str | None = Field(
@@ -38,7 +35,7 @@ class DomainCreate(BaseModel):
 class DomainRefresh(BaseModel):
     max_pages: int = Field(default=200, ge=1, le=500)
     auto_serp: bool = Field(
-        default=False,
+        default=True,
         description="If true, re-run ValueSERP checks for every page (uses API credits)",
     )
 
@@ -53,8 +50,10 @@ def _error_detail(message: str, code: str = "error") -> dict[str, str]:
 
 
 def _heal_stuck_syncing(supabase, row: dict) -> dict:
-    """Crawl finished but PageSpeed/SERP never cleared status (e.g. server restart)."""
-    if row.get("status") == "syncing" and (row.get("page_count") or 0) > 0:
+    """Crawl finished but status was never cleared (e.g. server restart or audit failure)."""
+    page_count = row.get("page_count") or 0
+    status = row.get("status")
+    if page_count > 0 and status in ("syncing", "error"):
         supabase.table("domains").update({"status": "active"}).eq("id", row["id"]).execute()
         return {**row, "status": "active"}
     return row
@@ -77,8 +76,8 @@ def _enrich_domain(row: dict) -> dict:
 
 def _onboarding_message(auto_serp: bool) -> str:
     if auto_serp:
-        return "Sitemap crawl, SERP checks, and PageSpeed audits running in background"
-    return "Sitemap crawl and PageSpeed audits running in background"
+        return "Sitemap crawl, SERP checks, technical audits, and PageSpeed running in background"
+    return "Sitemap crawl, technical audits, and PageSpeed running in background"
 
 
 def _queue_onboarding(
@@ -94,7 +93,7 @@ def _queue_onboarding(
     sync_gsc: bool = False,
 ) -> dict[str, Any]:
     background_tasks.add_task(
-        run_full_onboarding_pipeline,
+        run_onboarding_job,
         domain_id,
         domain,
         max_pages,
@@ -271,6 +270,35 @@ async def delete_domain(domain_id: str, user: dict = Depends(require_user)) -> d
         if not all_rows(result):
             raise HTTPException(status_code=404, detail=_error_detail("Domain not found", "not_found"))
         return {"success": True, "data": {"id": domain_id, "deleted": True}}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        message, code = format_db_error(exc)
+        raise HTTPException(status_code=500, detail=_error_detail(message, code)) from exc
+
+
+@router.post("/{domain_id}/serp/sync")
+async def sync_domain_serp(
+    domain_id: str,
+    background_tasks: BackgroundTasks,
+    user: dict = Depends(require_user),
+) -> dict[str, Any]:
+    """Re-run ValueSERP checks for every page (uses API credits)."""
+    try:
+        supabase = get_supabase()
+        uid = user_id_from(user)
+        row = get_owned_domain(supabase, domain_id, uid)
+
+        background_tasks.add_task(run_serp_sync_job, domain_id)
+        return {
+            "success": True,
+            "data": {
+                "domain_id": domain_id,
+                "domain": row.get("domain"),
+                "status": "queued",
+                "message": f"SERP checks queued for {row.get('page_count') or 0} pages",
+            },
+        }
     except HTTPException:
         raise
     except Exception as exc:
